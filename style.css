@@ -374,3 +374,160 @@ body.closing .sound { color: var(--gold); border-color: var(--g-hair); }
   #fx { display: none; }
 }
 .hold { visibility: hidden; }
+
+/* quiz picker: the whole card opens the room */
+.qopt { transition: background .2s; }
+.qopt:hover { background: var(--zebra); }
+.qopt:hover .thumb { border-color: var(--deep); }
+.open-cta { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1.5px solid var(--deep); background: var(--deep); color: #fff; padding: 14px 16px; font-size: 12.5px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; transition: background .2s; }
+.open-cta .arr { width: 22px; height: 0; border-top: 1.5px solid currentColor; position: relative; transition: width .2s; }
+.open-cta .arr::after { content: ""; position: absolute; right: 0; top: -5px; width: 8px; height: 8px; border-top: 1.5px solid currentColor; border-right: 1.5px solid currentColor; transform: rotate(45deg); }
+.qopt:hover .open-cta { background: #083F61; }
+.qopt:hover .open-cta .arr { width: 34px; }
+.qopt.opening .open-cta { background: var(--light); border-color: var(--light); }
+.qopt.opening .open-cta .arr { animation: nudge .6s ease-in-out infinite alternate; }
+@keyframes nudge { from { transform: translateX(0); } to { transform: translateX(6px); } }
+
+.qopt { gap: 8px; padding-top: 14px; }
+.qopt .top .outline-n { font-size: 40px; }
+.qopt .thumb { aspect-ratio: auto; height: clamp(110px, 20vh, 170px); }
+.qopt p { font-size: 14.5px; }
+.meta-line { color: var(--deep); font-size: 13px; font-weight: 700; letter-spacing: .06em; padding: 8px 0; border-top: 1px solid var(--hair); }
+.qopt .thumb img { height: 100%; width: auto; max-width: 100%; object-fit: contain; }
+.meta-line { margin-top: auto; }
+.open-cta { margin-top: 0; }
+.qopt .thumb { display: block; }
+.qopt .thumb img { margin: 0 auto; }
+
+/* ======================================================================
+   PREMIUM POLISH: entrance sequence, living band, shine, go mode stamp
+   ====================================================================== */
+@keyframes fadeL { from { opacity: 0; transform: translateX(-18px); } to { opacity: 1; transform: none; } }
+@keyframes trackIn { from { opacity: 0; letter-spacing: .9em; } to { opacity: 1; } }
+@keyframes ruleOut { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes spinIn { from { transform: rotate(-315deg) scale(0); } to { transform: rotate(45deg) scale(1); } }
+@keyframes dash { to { stroke-dashoffset: 0; } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes flow { to { transform: translateX(-22px); } }
+@keyframes flowR { from { transform: translateX(-22px); } to { transform: translateX(0); } }
+@keyframes autoShine { 0%, 72% { background-position: 160% 0; } 100% { background-position: -60% 0; } }
+@keyframes digitIn { from { opacity: 0; transform: translateY(60%) rotateX(70deg); } to { opacity: 1; transform: none; } }
+@keyframes qrIn { from { opacity: 0; transform: scale(.86); filter: blur(6px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -100% 0; } }
+@keyframes stampIn { 0% { opacity: 0; transform: scale(2.2) rotate(-6deg); } 55% { opacity: 1; transform: scale(.95) rotate(1deg); } 70% { transform: scale(1.02); } 100% { transform: scale(1) rotate(0); } }
+@keyframes flashOut { 0%, 78% { opacity: 1; } 100% { opacity: 0; visibility: hidden; } }
+@keyframes dpop { from { opacity: 0; transform: rotate(45deg) scale(0); } to { opacity: 1; transform: rotate(45deg) scale(1); } }
+
+/* masthead entrance */
+.mast .latin img { animation: fadeL .8s var(--ease) both; }
+.mast .t { animation: trackIn 1.1s .1s var(--ease) both; }
+.mast .rule i:first-child { transform-origin: right; animation: ruleOut .7s .4s var(--ease) both; }
+.mast .rule i:last-child { transform-origin: left; animation: ruleOut .7s .4s var(--ease) both; }
+.mast .rule b { animation: spinIn .9s .3s var(--snap) both; }
+.mast .s { animation: riseIn .7s .55s var(--ease) both; }
+.foot { animation: fadeIn .8s .6s both; }
+
+/* the frame draws itself once per visit */
+#frame.intro .k { stroke-dasharray: 1; stroke-dashoffset: 1; animation: dash 1.6s .1s var(--ease) forwards; }
+#frame.intro .k2 { stroke-dasharray: 1; stroke-dashoffset: 1; animation: dash 1.6s .35s var(--ease) forwards; }
+#frame.intro g, #frame.intro .tile { animation: fadeIn .9s 1.1s both; }
+
+/* the engine-turned band flows, like a banknote guilloche */
+.band path { animation: flow 2.6s linear infinite; }
+.band path + path { animation: flowR 3.4s linear infinite; }
+
+/* shine on every primary button; the main action catches the light on its own */
+.btn { position: relative; overflow: hidden; }
+.btn::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(110deg, transparent 35%, rgba(255,255,255,.3) 50%, transparent 65%) no-repeat; background-size: 220% 100%; background-position: 160% 0; transition: background-position .9s var(--ease); }
+.btn:hover::after { background-position: -60% 0; }
+.btn.line::after { background-image: linear-gradient(110deg, transparent 35%, rgba(20,130,194,.18) 50%, transparent 65%); }
+.btn.big:not(:disabled)::after { animation: autoShine 4s 1.2s ease-in-out infinite; }
+.btn:disabled::after { display: none; }
+
+/* cards lift */
+.qopt { transition: background .25s, transform .35s var(--ease); }
+.qopt:hover { transform: translateY(-4px); }
+.picker.stag > * { animation-duration: .6s; }
+
+/* lobby: QR settles, code digits roll in */
+.qr svg { animation: qrIn .9s .25s var(--ease) both; }
+.bigcode .dg { display: inline-block; animation: digitIn .6s var(--snap) both; animation-delay: calc(.45s + var(--d) * 70ms); }
+
+/* go mode: full-screen stamp, gold diamond streak, shimmer */
+.goflash { position: fixed; inset: 0; z-index: 44; display: grid; place-items: center; background: rgba(10,27,46,.88); animation: flashOut 1.7s ease both; pointer-events: none; }
+.goflash .st { text-align: center; border: 2px solid var(--gold); outline: 1px solid var(--gold-d); outline-offset: -8px; padding: 26px 34px 24px; background: var(--navy); animation: stampIn .7s var(--snap) both; }
+.goflash .st .k { display: block; color: var(--gold-l); font-size: 11px; font-weight: 700; letter-spacing: .3em; text-transform: uppercase; }
+.goflash .st .t { display: block; color: var(--gold); font: 800 clamp(46px, 14vw, 84px)/1 var(--display); letter-spacing: .04em; margin: 8px 0 6px; }
+.goflash .st .n { display: block; color: var(--n-text); font-size: 15px; font-weight: 600; letter-spacing: .08em; }
+.gomode { position: relative; overflow: hidden; }
+.gomode::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, rgba(228,204,142,.45) 50%, transparent 70%) no-repeat; background-size: 250% 100%; animation: shimmer 2.4s 1s linear infinite; pointer-events: none; }
+.streak { display: flex; gap: 9px; align-items: center; margin-top: 2px; }
+.streak i { width: 10px; height: 10px; background: var(--gold); transform: rotate(45deg); animation: dpop .4s var(--snap) both; animation-delay: calc(.5s + var(--d) * 90ms); }
+.gm-list span .dia.on { animation: pulseRed 1.2s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  #frame.intro .k, #frame.intro .k2 { stroke-dasharray: none; stroke-dashoffset: 0; }
+  .goflash { display: none; }
+}
+
+/* ======================================================================
+   HOUSE MOTION LANGUAGE, taken from the CNS, Pedia and Anti-Infective
+   detail-aid apps: the same curves, durations and choreography.
+   ====================================================================== */
+:root {
+  --ease: cubic-bezier(.215, .61, .355, 1);   /* their entrances (ease-out cubic) */
+  --e-io: cubic-bezier(.65, 0, .35, 1);       /* their line draws */
+  --snap: cubic-bezier(.3, 1.6, .5, 1);       /* their accent pop */
+}
+@keyframes mFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mUp { from { opacity: 0; transform: translate3d(0, 12px, 0); } to { opacity: 1; transform: none; } }
+@keyframes mRise { from { transform: translate3d(0, 14px, 0); } to { transform: none; } }
+@keyframes mGlide { from { opacity: 0; transform: translate3d(0, 24px, 0); } to { opacity: 1; transform: none; } }
+@keyframes mDrawX { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes mGem { from { opacity: 0; transform: rotate(45deg) scale(.4); } to { opacity: 1; transform: rotate(45deg) scale(1); } }
+@keyframes mInF { from { opacity: 0; transform: translate3d(24px, 0, 0); } to { opacity: 1; transform: none; } }
+@keyframes mTick { from { opacity: 0; transform: translate3d(0, -8px, 0); } to { opacity: 1; transform: none; } }
+@keyframes hitFlash { 0%, 35% { background-color: #DCEBF6; } 100% { background-color: rgba(220, 235, 246, 0); } }
+@keyframes wqDrift { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(-14px, 8px, 0); } }
+
+/* a new screen slides forward, then its parts follow the hero order */
+.anim { animation: mInF .28s var(--ease) both; }
+.anim > * { animation: mUp .36s var(--ease) both; }
+.anim > *:nth-child(2) { animation-delay: .08s; } .anim > *:nth-child(3) { animation-delay: .26s; } .anim > *:nth-child(4) { animation-delay: .42s; }
+.anim > *:nth-child(5) { animation-delay: .52s; } .anim > *:nth-child(6) { animation-delay: .7s; } .anim > *:nth-child(n+7) { animation-delay: .9s; }
+.anim .hl { animation: mRise .52s .08s var(--ease) both; }
+.hl .w { display: inline-block; animation: mFade .36s var(--ease) both; animation-delay: calc(.12s + var(--w) * 60ms); }
+.anim .plate, .anim .gplate, .anim .picker { animation: mGlide .72s .52s var(--ease) both; }
+.anim .facts, .anim .strip { animation: mUp .52s .7s var(--ease) both; }
+.stag > * { animation: mUp .36s var(--ease) both; animation-delay: calc(var(--i, 0) * 70ms + 120ms); }
+
+/* the tick and the masthead rule draw like their ruleset; the diamond is their gem */
+.tick i { transform-origin: left; animation: mDrawX .6s .26s var(--e-io) both; }
+.tick i + i { animation-delay: .4s; } .tick i + i + i { animation-delay: .5s; }
+.mast .rule i:first-child, .mast .rule i:last-child { animation: mDrawX .6s .26s var(--e-io) both; }
+.mast .rule b { animation: mGem .36s .26s var(--ease) both; }
+
+/* every tap flashes, every changed number drops in */
+.answer.hit, .qopt.hit { animation: hitFlash 1.8s ease-out; }
+.tickn { display: inline-block; animation: mTick .36s var(--ease) both; }
+.chapter .num { animation: mTick .36s var(--ease) both; }
+
+/* the white-on-seam action button: a two-tone base bar draws in */
+.btn.big::before { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: linear-gradient(90deg, var(--light) 0 50%, #9ED3F0 50% 100%); transform-origin: left; animation: mDrawX .6s .9s var(--e-io) both; }
+.btn.big:disabled::before { display: none; }
+.open-cta { position: relative; }
+.open-cta::before { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: linear-gradient(90deg, var(--light) 0 50%, #9ED3F0 50% 100%); transform-origin: left; transform: scaleX(0); transition: transform .6s var(--e-io); }
+.qopt:hover .open-cta::before, .qopt.opening .open-cta::before { transform: scaleX(1); }
+
+/* splash: the mark fades in, the seam draws under it */
+#splash { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; background: #fff; transition: opacity .45s var(--ease), visibility .45s; }
+#splash.out { opacity: 0; visibility: hidden; }
+#splash .in { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+#splash img { width: 168px; animation: mFade .56s .1s var(--ease) both; }
+#splash .seam { width: 168px; height: 3px; background: linear-gradient(90deg, var(--deep) 0 50%, var(--light) 50% 100%); transform-origin: left; animation: mDrawX .6s .52s var(--e-io) both; }
+#splash .micro { animation: mUp .36s .7s var(--ease) both; }
+
+/* the watermark drifts, as the detail aids' quote marks do */
+.watermark { animation: wqDrift 9s ease-in-out infinite alternate; }
+
+@media (prefers-reduced-motion: reduce) { #splash { display: none; } }

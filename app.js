@@ -29,11 +29,23 @@
   function pad(n) { return String(n).padStart(2, "0"); }
   function fmtCode(c) { return String(c).slice(0, 3) + " " + String(c).slice(3); }
   function quiz(id) { return window.QUIZZES[id]; }
-  function render(html) { app.innerHTML = html; }
+  var STILL = false;
+  function render(html, still) {
+    if (still === undefined) still = STILL;
+    STILL = false;
+    app.innerHTML = html;
+    var r = app.firstElementChild;
+    if (!still && r && !r.classList.contains("hold") && !r.classList.contains("seq")) r.classList.add("anim");
+  }
+  function codeDigits(code) { return String(code).split("").map(function (d, k) { return '<span class="dg" style="--d:' + k + '">' + d + '</span>' + (k === 2 ? " " : ""); }).join(""); }
+  function hit(el) { if (!el) return; el.classList.remove("hit"); void el.offsetWidth; el.classList.add("hit"); }
   function toast(msg) { var t = document.createElement("div"); t.className = "toast"; t.textContent = msg; document.body.appendChild(t); setTimeout(function () { t.remove(); }, 3200); }
   function waiting(text) { return '<div class="waiting"><span class="dots"><i></i><i></i><i></i></span>' + esc(text) + '</div>'; }
   function tick() { return '<div class="tick"><i></i><i></i><i></i></div>'; }
-  function hl(light, bold, cls) { return '<h1 class="hl' + (cls ? " " + cls : "") + '">' + esc(light) + '<b>' + esc(bold) + '</b></h1>'; }
+  function hl(light, bold, cls) {
+    var words = String(bold).split(" ").map(function (w, k) { return '<span class="w" style="--w:' + k + '">' + esc(w) + '</span>'; }).join(" ");
+    return '<h1 class="hl' + (cls ? " " + cls : "") + '">' + esc(light) + '<b>' + words + '</b></h1>';
+  }
   function chapter(num, label) { return '<div class="chapter"><span class="num outline-n">' + esc(num) + '</span><span class="lbl micro">' + esc(label) + '</span></div>'; }
   function titleParts(t) {
     if (t.indexOf(":") > 0) return [t.split(":")[0], t.split(":")[1].trim() + "."];
@@ -61,14 +73,15 @@
     var across = W - 2 * start, down = H - 2 * start, half = fs * 0.36;
     function corner(cx, cy) {
       var a = tile / 2, b = a - tile * 0.22, r = tile * 0.15;
-      return '<rect x="' + (cx - a) + '" y="' + (cy - a) + '" width="' + tile + '" height="' + tile + '" fill="' + fill + '" stroke="' + deep + '" stroke-width="1"/>' +
+      return '<rect class="tile" x="' + (cx - a) + '" y="' + (cy - a) + '" width="' + tile + '" height="' + tile + '" fill="' + fill + '" stroke="' + deep + '" stroke-width="1"/>' +
         '<rect x="' + (cx - b) + '" y="' + (cy - b) + '" width="' + 2 * b + '" height="' + 2 * b + '" fill="none" stroke="' + light + '" stroke-width=".5"/>' +
         '<polygon points="' + cx + "," + (cy - r) + " " + (cx + r) + "," + cy + " " + cx + "," + (cy + r) + " " + (cx - r) + "," + cy + '" fill="' + deep + '"/>';
     }
     svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    if (!drawFrame.done) { drawFrame.done = true; svg.classList.add("intro"); setTimeout(function () { svg.classList.remove("intro"); }, 2600); }
     svg.innerHTML = '<defs><path id="fl" d="M ' + (mid + half) + " " + (H - start) + " L " + (mid + half) + " " + start + '"/><path id="fr" d="M ' + (W - mid - half) + " " + start + " L " + (W - mid - half) + " " + (H - start) + '"/></defs>' +
-      '<rect x="' + o + '" y="' + o + '" width="' + (W - 2 * o) + '" height="' + (H - 2 * o) + '" fill="none" stroke="' + deep + '" stroke-width="1"/>' +
-      '<rect x="' + i + '" y="' + i + '" width="' + (W - 2 * i) + '" height="' + (H - 2 * i) + '" fill="none" stroke="' + light + '" stroke-width=".5"/>' +
+      '<rect class="k" pathLength="1" x="' + o + '" y="' + o + '" width="' + (W - 2 * o) + '" height="' + (H - 2 * o) + '" fill="none" stroke="' + deep + '" stroke-width="1"/>' +
+      '<rect class="k2" pathLength="1" x="' + i + '" y="' + i + '" width="' + (W - 2 * i) + '" height="' + (H - 2 * i) + '" fill="none" stroke="' + light + '" stroke-width=".5"/>' +
       '<g direction="ltr" fill="' + ink + '" font-family="Segoe UI, Noto Sans, Arial, sans-serif" font-weight="600" font-size="' + fs + '">' +
       '<text x="' + start + '" y="' + (mid + half) + '" textLength="' + across + '" lengthAdjust="spacing">' + run(across) + '</text>' +
       '<text x="' + start + '" y="' + (H - mid + half) + '" textLength="' + across + '" lengthAdjust="spacing">' + run(across) + '</text>' +
@@ -79,8 +92,8 @@
   /* the engine-turned band: two sine passes half a wavelength apart, centred */
   function drawBand() {
     var svg = document.getElementById("band"), w = Math.max(100, svg.clientWidth || 600), wl = 22, h = 6, m = h / 2, amp = (m - 1) * 4 / 3, up = "", dn = "";
-    var x0 = ((w / 2 - wl / 2) % wl) - wl;
-    for (var x = x0; x < w; x += wl) {
+    var x0 = ((w / 2 - wl / 2) % wl) - 2 * wl;
+    for (var x = x0; x < w + 2 * wl; x += wl) {
       up += "M" + x.toFixed(2) + " " + m + "Q" + (x + wl / 4).toFixed(2) + " " + (m - amp).toFixed(2) + " " + (x + wl / 2).toFixed(2) + " " + m + "T" + (x + wl).toFixed(2) + " " + m;
       dn += "M" + x.toFixed(2) + " " + m + "Q" + (x + wl / 4).toFixed(2) + " " + (m + amp).toFixed(2) + " " + (x + wl / 2).toFixed(2) + " " + m + "T" + (x + wl).toFixed(2) + " " + m;
     }
@@ -118,6 +131,20 @@
   }
   var GOLD = ["#C9A45C", "#E4CC8E", "#A8843F", "#F1F4F8"];
   function buzz(p) { try { if (navigator.vibrate) navigator.vibrate(p); } catch (e) {} }
+  function goFlash(streak) {
+    if (REDUCED) return;
+    var f = document.createElement("div"); f.className = "goflash";
+    f.innerHTML = '<div class="st"><span class="k">' + streak + ' correct in a row</span><span class="t">GO MODE</span><span class="n">Keep it going</span></div>';
+    document.body.appendChild(f); setTimeout(function () { f.remove(); }, 1800);
+    burst({ colors: GOLD, count: 90, power: 10, y: .5 });
+  }
+  function splash() {
+    if (REDUCED) return;
+    var s = document.createElement("div"); s.id = "splash";
+    s.innerHTML = '<div class="in"><img src="brand/sato-pharma-logo-on-light.svg" alt=""><span class="seam"></span><span class="micro">New Starter Quiz</span></div>';
+    document.body.appendChild(s);
+    setTimeout(function () { s.classList.add("out"); setTimeout(function () { s.remove(); }, 500); }, 1250);
+  }
 
   var SND = { ctx: null, on: store("satoquiz:sound") !== false };
   function audio() {
@@ -137,6 +164,7 @@
     go: function () { tone(880, .1, "square", .1); tone(1175, .3, "square", .1, .09); },
     tick: function () { tone(1250, .035, "square", .045); },
     reveal: function () { [523, 659, 784].forEach(function (f, i) { tone(f, .2, "triangle", .13, i * .07); }); },
+    rise: function () { for (var i = 0; i < 6; i++) tone(440 * Math.pow(1.19, i), .12, "triangle", .07, i * .06); },
     drum: function () { for (var i = 0; i < 18; i++) tone(98 + i * 4, .05, "square", .045 + i * .002, i * .11); },
     fanfare: function () { [523, 659, 784, 1047].forEach(function (f, i) { tone(f, .24, "triangle", .15, i * .11); }); tone(1047, 1.1, "triangle", .13, .46); tone(1319, 1.1, "sine", .07, .46); tone(1568, 1.1, "sine", .05, .5); }
   };
@@ -218,29 +246,37 @@
   /* ---------- host setup ---------- */
   function hostSetup() {
     chrome({ section: "Host a session", no: "00" });
-    var chosen = window.QUIZ_ORDER[0], hostName = store("satoquiz:hostname") || "Yomna";
+    var hostName = store("satoquiz:hostname") || "Yomna", busy = false;
     var thumbs = { "rep-brain-test": 3, "mind-tricks-short": 1, "mind-tricks-full": 30 };
     var cards = window.QUIZ_ORDER.map(function (id, k) {
-      var q = quiz(id), mins = Math.round(q.items.length * (id === "rep-brain-test" ? 1.4 : 0.9));
-      return '<button type="button" class="qopt" data-id="' + id + '" aria-pressed="' + (id === chosen) + '">' +
-        '<span class="top"><span class="outline-n">' + pad(k + 1) + '</span><span class="micro" style="flex:1;padding-bottom:6px">' + esc(q.subtitle) + '</span><span class="dia" style="margin-bottom:10px"></span></span>' +
+      var q = quiz(id), mins = Math.round(q.items.length * (id === "rep-brain-test" ? 1.5 : 1));
+      return '<button type="button" class="qopt" style="--i:' + k + '" data-id="' + id + '" aria-label="Open ' + esc(q.title) + '">' +
+        '<span class="top"><span class="outline-n">' + pad(k + 1) + '</span><span class="micro" style="flex:1;padding-bottom:6px">' + esc(q.subtitle) + '</span></span>' +
         '<span class="thumb"><img alt="" src="' + esc(q.items[thumbs[id]].img) + '"></span><h3>' + esc(q.title) + '</h3><p>' + esc(q.blurb) + '</p>' +
-        '<dl class="facts" style="margin-top:4px"><div><dt>Questions</dt><dd>' + q.items.length + '</dd></div><div><dt>About</dt><dd>' + mins + ' minutes</dd></div></dl></button>';
+        '<span class="meta-line">' + q.items.length + ' questions · about ' + mins + ' min</span>' +
+        '<span class="open-cta"><span class="lbl">Open this quiz</span><span class="arr" aria-hidden="true"></span></span></button>';
     }).join("");
-    render('<div class="stack" style="gap:26px">' + chapter("00", "Host a session") + hl("Choose", "the quiz.", "sm") +
-      '<div class="picker">' + cards + '</div>' +
-      '<div class="row spread" style="align-items:flex-end;border-top:1px solid var(--hair);padding-top:22px">' +
-      '<div class="field" style="flex:1;min-width:240px;max-width:380px"><label for="hostName">Host name shown on screens</label><input id="hostName" class="input" maxlength="40" value="' + esc(hostName) + '"></div>' +
-      '<div class="stack" style="gap:8px;align-items:flex-end"><div id="hostErr" class="error" hidden></div><button id="create" class="btn big">Open the quiz room</button></div></div></div>');
+    render('<div class="stack" style="gap:22px">' +
+      '<div class="row spread" style="align-items:flex-end;gap:24px">' + hl("Tap a quiz", "to open its room.", "sm") +
+      '<div class="field" style="flex:0 1 320px;min-width:220px"><label for="hostName">Host name shown on screens</label><input id="hostName" class="input" maxlength="40" value="' + esc(hostName) + '"></div></div>' +
+      '<div id="hostErr" class="error" hidden></div>' +
+      '<div class="picker stag">' + cards + '</div></div>');
     app.querySelectorAll(".qopt").forEach(function (b) {
-      b.addEventListener("click", function () { chosen = b.dataset.id; app.querySelectorAll(".qopt").forEach(function (x) { x.setAttribute("aria-pressed", String(x === b)); }); });
-    });
-    document.getElementById("create").addEventListener("click", function () {
-      var btn = this, name = document.getElementById("hostName").value.trim() || "Yomna";
-      btn.disabled = true; store("satoquiz:hostname", name);
-      rpc("quiz_create_session", { p_quiz: chosen, p_host: name }).then(function (r) {
-        store("satoquiz:host:" + r.code, r.host_key); location.search = "?host=" + r.code;
-      }).catch(function (e) { btn.disabled = false; var er = document.getElementById("hostErr"); er.hidden = false; er.textContent = e.message; });
+      b.addEventListener("click", function () {
+        if (busy) return;
+        busy = true; hit(b);
+        var name = document.getElementById("hostName").value.trim() || "Yomna";
+        store("satoquiz:hostname", name);
+        b.setAttribute("aria-pressed", "true"); b.classList.add("opening");
+        b.querySelector(".open-cta .lbl").textContent = "Opening the room";
+        rpc("quiz_create_session", { p_quiz: b.dataset.id, p_host: name }).then(function (r) {
+          store("satoquiz:host:" + r.code, r.host_key); location.search = "?host=" + r.code;
+        }).catch(function (e) {
+          busy = false; b.setAttribute("aria-pressed", "false"); b.classList.remove("opening");
+          b.querySelector(".open-cta .lbl").textContent = "Open this quiz";
+          var er = document.getElementById("hostErr"); er.hidden = false; er.textContent = e.message;
+        });
+      });
     });
   }
 
@@ -252,7 +288,7 @@
       render('<div class="phone stack">' + hl("This room was opened", "on another device.", "sm") + tick() + '<p class="lead">Host controls only work in the browser that opened the room. Open a new room to continue.</p><div><a class="btn" href="?host">Open a new room</a></div></div>');
       return;
     }
-    var S = null, acting = false, startLocal = 0, lastSig = "", lastDraw = "", seen = {}, lastAns = -1, lastTick = null, revealedAt = null;
+    var S = null, acting = false, startLocal = 0, lastSig = "", lastDraw = "", seen = {}, lastAns = -1, lastTick = null, revealedAt = null, lobbyDrawn = false, animSig = "";
     var joinUrl = BASE + "?join=" + code;
     var mr = document.getElementById("mastRight");
     mr.innerHTML = '<button class="sound" id="snd" type="button"></button>';
@@ -282,18 +318,20 @@
     }
     function draw() {
       var q = quiz(S.quiz_id), joinTag = "Join " + fmtCode(code), tp = titleParts(q.title);
+      var still = (S.status + "|" + S.q_index) === animSig; animSig = S.status + "|" + S.q_index; STILL = still;
       if (S.status !== "question") hideCountdown();
       if (S.status === "lobby") {
         chrome({ host: S.host, section: "The room is open", no: "00", left: joinTag });
         render('<div class="two">' +
           '<div class="plate stack qr-plate" style="align-items:center;padding:26px"><p class="micro" style="margin:0">Scan to join</p><div class="qr">' + qrSvg(joinUrl) + '</div>' +
-          '<p class="micro" style="margin:0;color:var(--muted)">or open the link and type the code</p><div class="bigcode">' + fmtCode(code) + '</div><div class="url">' + esc(joinUrl) + '</div></div>' +
+          '<p class="micro" style="margin:0;color:var(--muted)">or open the link and type the code</p><div class="bigcode" aria-label="Code ' + fmtCode(code) + '">' + (lobbyDrawn ? fmtCode(code) : codeDigits(code)) + '</div><div class="url">' + esc(joinUrl) + '</div></div>' +
           '<div class="stack" style="gap:20px">' + chapter(pad(S.players.length), "Players in the room") + hl(tp[0], tp[1], "sm") +
           (S.players.length ? '<div class="names">' + S.players.map(function (p) { var isNew = !seen[p]; seen[p] = 1; return '<span' + (isNew ? ' class="new"' : "") + '><i class="dia"></i><span class="nm">' + esc(p) + '</span></span>'; }).join("") + '</div>' : waiting("Waiting for the first player")) +
           '<p class="callout">Most correct answers first, then the fastest total time on correct answers. Only number one wins the gift.</p>' +
-          '<div><button class="btn big" id="start"' + (S.players.length ? "" : " disabled") + '>Start the quiz</button></div></div></div>');
+          '<div><button class="btn big" id="start"' + (S.players.length ? "" : " disabled") + '>Start the quiz</button></div></div></div>', still);
         document.getElementById("start").addEventListener("click", function () { act("next", this); });
-        if (S.players.length) SFX.blip();
+        if (S.players.length && lobbyDrawn) SFX.blip();
+        lobbyDrawn = true;
       } else if (S.status === "question") {
         var item = q.items[S.q_index];
         chrome({ host: S.host, section: "Question " + pad(S.q_index + 1) + " of " + pad(S.total), no: pad(S.q_index + 1), left: joinTag });
@@ -320,7 +358,7 @@
           '<p class="shead micro">Ranking so far</p>' + boardHtml(S.board || [], S.total, 3) +
           '<div><button class="btn big" id="next">' + (last ? "Show the final ranking" : "Next question") + '</button></div></div></div></div>');
         document.getElementById("next").addEventListener("click", function () { act("next", this); });
-        if (revealedAt !== S.q_index) { revealedAt = S.q_index; setTimeout(SFX.reveal, 150); }
+        if (revealedAt !== S.q_index) { revealedAt = S.q_index; setTimeout(SFX.reveal, 150); if ((S.gomode || []).length) setTimeout(SFX.rise, 700); }
       } else {
         var b = S.board || [], w = b[0];
         chrome({ host: S.host, section: "Final ranking ◆", no: "", left: S.players.length + " players", closing: true });
@@ -367,7 +405,7 @@
         var full = sig + "|" + (s.status === "lobby" ? s.players.length : "") + (s.status === "finished" || s.status === "reveal" ? JSON.stringify(s.board) : "");
         S = s; lastSig = sig;
         if (full !== lastDraw) { lastDraw = full; draw(); window.scrollTo(0, 0); }
-        else if (s.status === "question") { var a = document.getElementById("ans"); if (a) { a.textContent = s.answered + " / " + s.players.length; if (s.answered !== lastAns) { lastAns = s.answered; bump(a); SFX.blip(); } } }
+        else if (s.status === "question") { var a = document.getElementById("ans"); if (a) { a.textContent = s.answered + " / " + s.players.length; if (s.answered !== lastAns) { lastAns = s.answered; a.classList.remove("tickn"); void a.offsetWidth; a.classList.add("tickn"); SFX.blip(); } } }
       }).catch(function (e) {
         if (/not found/i.test(e.message)) { poll.stop(); render('<div class="phone stack">' + hl("Room", "not found.", "sm") + '<p class="lead">' + esc(e.message) + '</p><div><a class="btn" href="?host">Open a new room</a></div></div>'); }
       });
@@ -378,20 +416,21 @@
   function player(code) {
     var me = store("satoquiz:player:" + code);
     if (!me) return joinForm(code);
-    var S = null, lastKey = "", startLocal = 0, picking = false, pending = null, cdFired = {};
+    var S = null, lastKey = "", startLocal = 0, picking = false, pending = null, cdFired = {}, animSig = "", flashed = {};
     function draw() {
       var q = quiz(S.quiz_id);
+      var still = (S.status + "|" + S.q_index) === animSig; animSig = S.status + "|" + S.q_index; STILL = still;
       if (S.status !== "question") hideCountdown();
       if (S.status === "lobby") {
         chrome({ host: S.host, section: "Lobby", no: "00" });
         render('<div class="phone stack">' + chapter(pad(S.players), "Players in the room") + '<div>' + hl("You're in,", S.name.split(" ")[0] + ".", "sm") + '</div>' + tick() +
           '<p class="lead">Watch the big screen. ' + esc(S.host) + ' will start the quiz in a moment.</p>' + waiting("Waiting for the first question") +
-          '<p class="callout" style="margin-top:8px">Most correct answers first, then the fastest time. Only number one wins the gift.</p></div>');
+          '<p class="callout" style="margin-top:8px">Most correct answers first, then the fastest time. Only number one wins the gift.</p></div>', still);
       } else if (S.status === "question") {
         var item = q.items[S.q_index], mine = S.my_choice != null ? S.my_choice : pending;
         chrome({ host: S.host, section: "Question " + pad(S.q_index + 1) + " of " + pad(S.total), no: pad(S.q_index + 1) });
         var hold = Date.now() < startLocal;
-        render('<div class="phone stack' + (hold ? " hold" : " anim") + '" id="qbody" style="gap:14px"><div class="ptop"><span class="left"><span class="outline-n">' + pad(S.q_index + 1) + '</span><span class="micro" style="padding-bottom:6px">of ' + S.total + '</span></span><span class="secs" id="secs">' + S.duration + ' s</span></div>' +
+        render('<div class="phone stack' + (hold ? " hold" : (still ? "" : " anim")) + '" id="qbody" style="gap:14px"><div class="ptop"><span class="left"><span class="outline-n">' + pad(S.q_index + 1) + '</span><span class="micro" style="padding-bottom:6px">of ' + S.total + '</span></span><span class="secs" id="secs">' + S.duration + ' s</span></div>' +
           '<div class="timeline" id="tl" style="width:100%"></div><h2 class="qtext" style="font-size:22px">' + esc(item.q) + '</h2>' +
           '<div class="plate pimg" id="pimg" style="padding:10px"><img alt="Question picture, tap to enlarge" src="' + esc(item.img) + '"></div>' +
           '<div class="answers">' + item.opts.map(function (o, i) {
@@ -405,7 +444,12 @@
         if (S.my_choice == null) { cls = "result-none"; head = hl("No answer", "this time.", "sm"); buzz(120); }
         else if (S.my_correct) { cls = "result-right"; head = hl("Correct.", secs(S.my_ms), "sm"); buzz([30, 40, 30]); setTimeout(function () { burst({ count: S.streak >= 3 ? 110 : 60, power: 8, y: .28 }); }, 200); }
         else { cls = "result-wrong"; head = hl("Not this", "time.", "sm"); buzz(220); }
-        var go = S.my_correct && S.streak >= 3 ? '<div><span class="gomode"><span class="d"></span>Go mode · ' + S.streak + ' in a row</span></div>' : "";
+        var go = "";
+        if (S.my_correct && S.streak >= 3) {
+          var ds = ""; for (var d = 0; d < Math.min(S.streak, 10); d++) ds += '<i style="--d:' + d + '"></i>';
+          go = '<div class="stack" style="gap:10px"><div><span class="gomode"><span class="d"></span>Go mode · ' + S.streak + ' in a row</span></div><div class="streak" aria-hidden="true">' + ds + '</div></div>';
+          if ((S.streak === 3 || S.streak === 5 || S.streak === 10) && !flashed[S.q_index]) { flashed[S.q_index] = 1; var st = S.streak; setTimeout(function () { goFlash(st); buzz([40, 30, 40, 30, 120]); }, 350); }
+        }
         render('<div class="phone stack anim ' + cls + '"><div class="callout">' + head + '</div>' + go +
           '<dl class="facts"><div><dt>Correct answer</dt><dd><b style="color:var(--deep)">' + esc(S.answer) + '</b></dd></div>' +
           (S.live_rank ? '<div><dt>Your rank now</dt><dd><span class="liverank">#' + S.live_rank + '</span> of ' + S.players + '</dd></div>' : "") +
@@ -432,7 +476,7 @@
     function pick(i) {
       if (picking || !S || S.status !== "question" || S.my_choice != null || Date.now() < startLocal) return;
       picking = true; pending = i; buzz(15);
-      app.querySelectorAll(".answer").forEach(function (b) { b.disabled = true; b.setAttribute("aria-pressed", String(+b.dataset.i === i)); });
+      app.querySelectorAll(".answer").forEach(function (b) { b.disabled = true; b.setAttribute("aria-pressed", String(+b.dataset.i === i)); if (+b.dataset.i === i) hit(b); });
       document.getElementById("lock").innerHTML = waiting("Answer " + LETTERS[i] + " is locked in");
       rpc("quiz_answer", { p_code: code, p_token: me.token, p_q: S.q_index, p_choice: i })
         .then(function () { S.my_choice = i; })
@@ -495,6 +539,7 @@
   }
 
   /* ---------- route ---------- */
+  if (!params.has("host") || !(params.get("host") || "").replace(/\D/g, "")) splash();
   if (params.has("join")) player(params.get("join").replace(/\D/g, ""));
   else if (params.has("host")) { var hc = (params.get("host") || "").replace(/\D/g, ""); if (hc.length === 6) hostRun(hc); else hostSetup(); }
   else landing();
