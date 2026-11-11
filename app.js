@@ -26,6 +26,7 @@
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
   function store(k, v) { try { if (v === undefined) return JSON.parse(localStorage.getItem(k)); localStorage.setItem(k, JSON.stringify(v)); } catch (e) { return null; } }
   function secs(ms) { return (Math.max(0, ms) / 1000).toFixed(1) + " s"; }
+  function picOnly(opts) { return opts.every(function (x, j) { return x === LETTERS[j]; }); }
   function pad(n) { return String(n).padStart(2, "0"); }
   function fmtCode(c) { return String(c).slice(0, 3) + " " + String(c).slice(3); }
   function quiz(id) { return window.QUIZZES[id]; }
@@ -244,40 +245,114 @@
   }
 
   /* ---------- host setup ---------- */
+  /* open a live room for a quiz (this is when the QR code is published) */
+  function openRoom(id, onFail) {
+    var el = document.getElementById("hostName");
+    var name = (el ? el.value.trim() : "") || store("satoquiz:hostname") || "Yomna";
+    store("satoquiz:hostname", name);
+    rpc("quiz_create_session", { p_quiz: id, p_host: name }).then(function (r) {
+      store("satoquiz:host:" + r.code, r.host_key); location.search = "?host=" + r.code;
+    }).catch(function (e) { if (onFail) onFail(e); });
+  }
+
   function hostSetup() {
     chrome({ section: "Host a session", no: "00" });
     var hostName = store("satoquiz:hostname") || "Yomna", busy = false;
-    var thumbs = { "rep-brain-test": 3, "mind-tricks-short": 1, "mind-tricks-full": 30 };
+    var thumbs = { "rep-brain-test": 3, "mind-tricks-short": 1, "mind-tricks-full": 30, "test-drive": 3 };
     var cards = window.QUIZ_ORDER.map(function (id, k) {
-      var q = quiz(id), mins = Math.round(q.items.length * (id === "rep-brain-test" ? 1.5 : 1));
-      return '<button type="button" class="qopt" style="--i:' + k + '" data-id="' + id + '" aria-label="Open ' + esc(q.title) + '">' +
+      var q = quiz(id), mins = id === "test-drive" ? 2 : Math.round(q.items.length * (id === "rep-brain-test" ? 1.5 : 1));
+      return '<div class="qopt" role="group" aria-label="' + esc(q.title) + '" style="--i:' + k + '" data-id="' + id + '">' +
         '<span class="top"><span class="outline-n">' + pad(k + 1) + '</span><span class="micro" style="flex:1;padding-bottom:6px">' + esc(q.subtitle) + '</span></span>' +
-        '<span class="thumb"><img alt="" src="' + esc(q.items[thumbs[id]].img) + '"></span><h3>' + esc(q.title) + '</h3><p>' + esc(q.blurb) + '</p>' +
+        '<span class="thumb"><img alt="" src="' + esc(q.items[thumbs[id] || 0].img) + '"></span><h3>' + esc(q.title) + '</h3><p>' + esc(q.blurb) + '</p>' +
         '<span class="meta-line">' + q.items.length + ' questions · about ' + mins + ' min</span>' +
-        '<span class="open-cta"><span class="lbl">Open this quiz</span><span class="arr" aria-hidden="true"></span></span></button>';
+        '<button type="button" class="open-cta" data-act="open"><span class="lbl">Open the room</span><span class="arr" aria-hidden="true"></span></button>' +
+        '<button type="button" class="prev-cta" data-act="preview">Preview as admin</button></div>';
     }).join("");
     render('<div class="stack" style="gap:22px">' +
       '<div class="row spread" style="align-items:flex-end;gap:24px">' + hl("Tap a quiz", "to open its room.", "sm") +
       '<div class="field" style="flex:0 1 320px;min-width:220px"><label for="hostName">Host name shown on screens</label><input id="hostName" class="input" maxlength="40" value="' + esc(hostName) + '"></div></div>' +
       '<div id="hostErr" class="error" hidden></div>' +
-      '<div class="picker stag">' + cards + '</div></div>');
+      '<div class="picker stag">' + cards + '</div>' +
+      '<p class="muted" style="margin:0;font-size:14px">Preview as admin shows every question with its answer before you open the room. Players never see it.</p></div>');
     app.querySelectorAll(".qopt").forEach(function (b) {
-      b.addEventListener("click", function () {
+      b.addEventListener("click", function (ev) {
+        var act = ev.target.closest("[data-act]");
+        if (act && act.dataset.act === "preview") { store("satoquiz:hostname", document.getElementById("hostName").value.trim() || "Yomna"); location.search = "?preview=" + b.dataset.id; return; }
         if (busy) return;
         busy = true; hit(b);
-        var name = document.getElementById("hostName").value.trim() || "Yomna";
-        store("satoquiz:hostname", name);
-        b.setAttribute("aria-pressed", "true"); b.classList.add("opening");
-        b.querySelector(".open-cta .lbl").textContent = "Opening the room";
-        rpc("quiz_create_session", { p_quiz: b.dataset.id, p_host: name }).then(function (r) {
-          store("satoquiz:host:" + r.code, r.host_key); location.search = "?host=" + r.code;
-        }).catch(function (e) {
-          busy = false; b.setAttribute("aria-pressed", "false"); b.classList.remove("opening");
-          b.querySelector(".open-cta .lbl").textContent = "Open this quiz";
+        b.classList.add("opening"); b.querySelector(".open-cta .lbl").textContent = "Opening the room";
+        openRoom(b.dataset.id, function (e) {
+          busy = false; b.classList.remove("opening"); b.querySelector(".open-cta .lbl").textContent = "Open the room";
           var er = document.getElementById("hostErr"); er.hidden = false; er.textContent = e.message;
         });
       });
     });
+  }
+
+  /* ---------- admin preview: every question with its answer, before the room opens ---------- */
+  function preview(id) {
+    var q = quiz(id);
+    if (!q) { hostSetup(); return; }
+    var keys = null, idx = 0, showReveal = false;
+    function pinForm(err) {
+      chrome({ section: "Admin preview", no: "" });
+      render('<div class="phone stack">' + chapter("00", "Admin preview") + '<div>' + hl("Preview", q.title + ".", "sm") + '</div>' + tick() +
+        '<p class="lead">Enter the admin PIN to see every question with its answer. Players never see this page.</p>' +
+        '<form id="pinForm" class="stack" novalidate><div class="field"><label for="pin">Admin PIN</label><input id="pin" class="input code-input" type="password" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••••"></div>' +
+        (err ? '<div class="error">' + esc(err) + '</div>' : "") +
+        '<button class="btn big block" type="submit">Show the quiz</button></form>' +
+        '<p class="muted" style="margin:0;font-size:14px"><a href="?host">Back to the quizzes</a></p></div>');
+      var f = document.getElementById("pinForm"), pin = document.getElementById("pin");
+      pin.focus();
+      f.addEventListener("submit", function (ev) {
+        ev.preventDefault();
+        var btn = f.querySelector("button"); btn.disabled = true;
+        rpc("quiz_preview", { p_quiz: id, p_pin: pin.value.trim() }).then(function (k) {
+          try { sessionStorage.setItem("satoquiz:pin", pin.value.trim()); } catch (e2) {}
+          keys = k; draw();
+        }).catch(function (e2) { pinForm(e2.message); });
+      });
+    }
+    function draw() {
+      var it = q.items[idx], k = keys[idx], total = q.items.length, num = pad(idx + 1);
+      chrome({ section: "Admin preview · " + num + " of " + pad(total), no: num, left: "Not visible to players" });
+      var opts = '<div class="opts stag">' + it.opts.map(function (o, i) {
+        var c = i === k.correct;
+        return '<div class="opt' + (c ? " correct" : " dim") + '" style="--i:' + i + '"><span class="L outline-n">' + LETTERS[i] + '</span><span>' + (picOnly(it.opts) ? "" : esc(o)) + '</span><span>' + (c ? '<span class="micro">Correct</span>' : "") + '</span></div>';
+      }).join("") + '</div>';
+      var route = total <= 12 ? '<div class="route prev-route">' + q.items.map(function (_, j) {
+        return '<div class="' + (j < idx ? "done" : j === idx ? "here" : "") + '" data-j="' + j + '" role="button" tabindex="0" aria-label="Question ' + (j + 1) + '"><span class="n outline-n">' + pad(j + 1) + '</span><span class="dot"></span></div>';
+      }).join("") + '</div>' : "";
+      var img = showReveal && it.reveal ? it.reveal : it.img;
+      render('<div class="stack" style="gap:20px">' +
+        '<div class="row spread" style="gap:16px"><p class="kicker-light micro" style="margin:0"><i class="dia on"></i> Admin preview · ' + esc(q.title) + '</p>' +
+        '<div class="row" style="gap:10px"><a class="btn line" href="?host">All quizzes</a><button class="btn big" id="goLive">Open the room and show the QR</button></div></div>' +
+        route +
+        '<div class="two"><div class="stack"><div class="plate figure sm"><img alt="Question picture" src="' + esc(img) + '"></div>' +
+        (it.reveal ? '<div><button class="btn line" id="flip">' + (showReveal ? "Show the question picture" : "Show the answer picture") + '</button></div>' : "") + '</div>' +
+        '<div class="stack"><div class="qhead"><span class="outline-n">' + num + '</span><span class="micro" style="padding-bottom:8px">' + esc(it.tag) + ' · of ' + total + '</span></div>' +
+        '<h2 class="qtext">' + esc(it.q) + '</h2>' + opts +
+        '<p class="callout explain"><b>' + esc(k.answer) + '.</b> ' + esc(k.explanation) + '</p>' +
+        '<dl class="facts"><div><dt>Time limit</dt><dd>' + k.secs + ' seconds, after a 3-second countdown</dd></div></dl>' +
+        '<div class="row" style="gap:10px"><button class="btn line" id="prevQ"' + (idx === 0 ? " disabled" : "") + '>Previous</button><button class="btn line" id="nextQ"' + (idx === total - 1 ? " disabled" : "") + '>Next question</button>' +
+        (total > 12 ? '<span class="muted" style="font-size:14px">Use the arrow keys to move</span>' : "") + '</div></div></div></div>');
+      document.getElementById("prevQ").addEventListener("click", function () { go(idx - 1); });
+      document.getElementById("nextQ").addEventListener("click", function () { go(idx + 1); });
+      var fl = document.getElementById("flip"); if (fl) fl.addEventListener("click", function () { showReveal = !showReveal; draw(); });
+      app.querySelectorAll(".prev-route [data-j]").forEach(function (d) { d.addEventListener("click", function () { go(+d.dataset.j); }); });
+      document.getElementById("goLive").addEventListener("click", function () {
+        var b = this; b.disabled = true; b.textContent = "Opening the room";
+        openRoom(id, function (e) { b.disabled = false; b.textContent = "Open the room and show the QR"; toast(e.message); });
+      });
+    }
+    function go(j) { if (j < 0 || j >= q.items.length) return; idx = j; showReveal = false; draw(); window.scrollTo(0, 0); }
+    document.addEventListener("keydown", function (ev) {
+      if (!keys || /input|textarea/i.test((ev.target.tagName || ""))) return;
+      if (ev.key === "ArrowRight") go(idx + 1); else if (ev.key === "ArrowLeft") go(idx - 1);
+    });
+    var saved = null; try { saved = sessionStorage.getItem("satoquiz:pin"); } catch (e) {}
+    if (saved) rpc("quiz_preview", { p_quiz: id, p_pin: saved }).then(function (k) { keys = k; draw(); }).catch(function () { pinForm(); });
+    else pinForm();
   }
 
   /* ---------- host live ---------- */
@@ -312,7 +387,7 @@
       return '<div class="opts' + (reveal ? " stag" : "") + '">' + item.opts.map(function (o, i) {
         var n = dist[String(i)] || 0, pct = total ? n / total : 0;
         var cls = reveal ? (i === S.correct ? " correct" : " dim") : "";
-        return '<div class="opt' + cls + '" style="--i:' + i + '"><span class="L outline-n">' + LETTERS[i] + '</span><span>' + (o === LETTERS[i] ? "" : esc(o)) + '</span>' +
+        return '<div class="opt' + cls + '" style="--i:' + i + '"><span class="L outline-n">' + LETTERS[i] + '</span><span>' + (picOnly(item.opts) ? "" : esc(o)) + '</span>' +
           (reveal ? '<span class="count">' + n + '</span><span class="bar" style="width:calc((100% - 64px) * ' + pct.toFixed(3) + ')"></span>' : "<span></span>") + '</div>';
       }).join("") + '</div>';
     }
@@ -434,7 +509,7 @@
           '<div class="timeline" id="tl" style="width:100%"></div><h2 class="qtext" style="font-size:22px">' + esc(item.q) + '</h2>' +
           '<div class="plate pimg" id="pimg" style="padding:10px"><img alt="Question picture, tap to enlarge" src="' + esc(item.img) + '"></div>' +
           '<div class="answers">' + item.opts.map(function (o, i) {
-            return '<button class="answer" style="--i:' + i + '" data-i="' + i + '" aria-pressed="' + (mine === i) + '"' + (mine != null ? " disabled" : "") + '><span class="L outline-n">' + LETTERS[i] + '</span><span>' + (o === LETTERS[i] ? "Picture " + LETTERS[i] : esc(o)) + '</span><span class="dia"></span></button>';
+            return '<button class="answer" style="--i:' + i + '" data-i="' + i + '" aria-pressed="' + (mine === i) + '"' + (mine != null ? " disabled" : "") + '><span class="L outline-n">' + LETTERS[i] + '</span><span>' + (picOnly(item.opts) ? "Picture " + LETTERS[i] : esc(o)) + '</span><span class="dia"></span></button>';
           }).join("") + '</div><div id="lock">' + (mine != null ? waiting("Answer " + LETTERS[mine] + " is locked in") : "") + '</div></div>');
         document.getElementById("pimg").addEventListener("click", function () { zoom(item.img); });
         app.querySelectorAll(".answer").forEach(function (b) { b.addEventListener("click", function () { pick(+b.dataset.i); }); });
@@ -539,8 +614,9 @@
   }
 
   /* ---------- route ---------- */
-  if (!params.has("host") || !(params.get("host") || "").replace(/\D/g, "")) splash();
+  if (!params.has("preview") && (!params.has("host") || !(params.get("host") || "").replace(/\D/g, ""))) splash();
   if (params.has("join")) player(params.get("join").replace(/\D/g, ""));
   else if (params.has("host")) { var hc = (params.get("host") || "").replace(/\D/g, ""); if (hc.length === 6) hostRun(hc); else hostSetup(); }
+  else if (params.has("preview")) preview(params.get("preview"));
   else landing();
 })();

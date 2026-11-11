@@ -754,3 +754,12 @@ window.QUIZZES = {
   ]
  }
 };
+
+/* Test Drive: four quick questions that show every feature (countdown, go mode, reveal, podium). */
+window.QUIZ_ORDER.push("test-drive");
+window.QUIZZES["test-drive"] = {
+ title: "Test Drive",
+ subtitle: "4 quick questions",
+ blurb: "A two-minute run-through: countdown, go mode, reveals and the podium.",
+ items: [window.QUIZZES["mind-tricks-full"].items[0], window.QUIZZES["rep-brain-test"].items[0], window.QUIZZES["mind-tricks-full"].items[6], window.QUIZZES["mind-tricks-full"].items[30]]
+};

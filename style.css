@@ -531,3 +531,16 @@ body.closing .sound { color: var(--gold); border-color: var(--g-hair); }
 .watermark { animation: wqDrift 9s ease-in-out infinite alternate; }
 
 @media (prefers-reduced-motion: reduce) { #splash { display: none; } }
+
+/* quiz picker: four cards, open + preview actions */
+.picker { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1180px) { .picker { grid-template-columns: repeat(2, minmax(0, 1fr)); } .qopt:nth-child(3) { border-left: 0; padding-left: 0; } }
+@media (max-width: 700px) { .picker { grid-template-columns: 1fr; } }
+.qopt { cursor: pointer; }
+.open-cta { appearance: none; width: 100%; cursor: pointer; font-family: inherit; }
+.prev-cta { appearance: none; width: 100%; cursor: pointer; background: transparent; border: 1.5px solid var(--deep); color: var(--deep); padding: 12px 16px; font: 700 12px/1 var(--latin); letter-spacing: .2em; text-transform: uppercase; transition: background .2s; }
+.prev-cta:hover { background: var(--zebra); }
+.kicker-light { display: inline-flex; align-items: center; gap: 10px; color: var(--deep); }
+.prev-route > div { cursor: pointer; }
+.prev-route > div:hover .n { -webkit-text-stroke-color: var(--deep); }
+.opt .micro { color: var(--deep); }
