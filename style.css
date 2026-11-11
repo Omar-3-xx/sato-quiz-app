@@ -544,3 +544,70 @@ body.closing .sound { color: var(--gold); border-color: var(--g-hair); }
 .prev-route > div { cursor: pointer; }
 .prev-route > div:hover .n { -webkit-text-stroke-color: var(--deep); }
 .opt .micro { color: var(--deep); }
+
+/* ======================================================================
+   QUIZ ADMIN
+   ====================================================================== */
+.atabs { display: flex; gap: 0; border-bottom: 1px solid var(--hair); }
+.atab { appearance: none; background: transparent; border: 0; border-bottom: 3px solid transparent; margin-bottom: -1px; padding: 12px 18px; font: 700 12px/1 var(--latin); letter-spacing: .2em; text-transform: uppercase; color: var(--muted); cursor: pointer; }
+.atab.on { color: var(--deep); border-bottom-color: var(--deep); }
+.atab:hover { color: var(--deep); }
+.admin-grid { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: 32px; align-items: start; }
+@media (max-width: 900px) { .admin-grid { grid-template-columns: 1fr; } }
+.qlist { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 16px; }
+.qitem { appearance: none; text-align: left; background: transparent; border: 0; border-left: 3px solid transparent; border-bottom: 1px solid var(--hair); padding: 10px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+.qitem .t { font-weight: 700; color: var(--ink); }
+.qitem .m { font-size: 13px; color: var(--muted); }
+.qitem.on { border-left-color: var(--deep); background: var(--zebra); }
+.qitem.on .t { color: var(--deep); }
+.qitem:hover { background: var(--zebra); }
+.frow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: end; }
+@media (max-width: 700px) { .frow { grid-template-columns: 1fr; } }
+.input.area { font-size: 16px; line-height: 1.5; border: 1.5px solid var(--hair); padding: 10px 12px; resize: vertical; }
+.input.area:focus { border-color: var(--light); }
+.help { font-size: 12.5px; color: var(--muted); }
+.check { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; color: var(--deep); padding-bottom: 12px; cursor: pointer; }
+.check input { width: 18px; height: 18px; accent-color: var(--deep); }
+.btn.sm { padding: 9px 12px; font-size: 11px; }
+.btn.danger { background: #A33333; border-color: #A33333; }
+.btn.danger:hover { background: #862828; }
+.btn.line.danger-line { color: #A33333; border-color: #D9A3A3; }
+.btn.line.danger-line:hover { background: #FBEDED; }
+.confirm { display: inline-flex; align-items: center; gap: 8px; color: #A33333; font-weight: 700; flex-wrap: wrap; }
+.qrows { border-top: 1.5px solid var(--deep); }
+.qrow { display: grid; grid-template-columns: 52px 74px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--hair); }
+.qrow .n { font-size: 34px; }
+.qrow .th { width: 74px; height: 50px; border: 1px solid var(--hair); background: #fff; display: grid; place-items: center; overflow: hidden; }
+.qrow .th img { max-height: 100%; max-width: 100%; object-fit: contain; }
+.qrow .body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.qrow .body b { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.qrow .meta { font-size: 13px; color: var(--muted); }
+.qrow .acts { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 700px) { .qrow { grid-template-columns: 40px 56px minmax(0, 1fr); } .qrow .acts { grid-column: 1 / -1; justify-content: flex-start; } }
+.ibtn { appearance: none; width: 34px; height: 34px; border: 1px solid var(--hair); background: #fff; color: var(--deep); font-size: 16px; cursor: pointer; }
+.ibtn:hover:not(:disabled) { border-color: var(--deep); }
+.ibtn:disabled { color: var(--hair); cursor: default; }
+.qeditor { padding: 22px; animation: mUp .36s var(--ease) both; }
+.opts-ed { border-top: 1.5px solid var(--deep); }
+.optrow { display: grid; grid-template-columns: 70px minmax(0, 1fr) 34px; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--hair); }
+.radio { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.radio input { width: 18px; height: 18px; accent-color: var(--deep); }
+.radio .L { font-size: 30px; }
+.radio input:checked + .L { color: var(--deep); -webkit-text-stroke: 0; font-weight: 700; }
+.chipbtn { appearance: none; border: 1px solid var(--hair); background: #fff; color: var(--deep); padding: 8px 10px; font-weight: 700; font-size: 13px; cursor: pointer; }
+.chipbtn.on { background: var(--deep); color: #fff; border-color: var(--deep); }
+.picbox { display: flex; flex-direction: column; gap: 8px; }
+.picbox .pv { height: 150px; border: 1px solid var(--hair); background: #fff; display: grid; place-items: center; overflow: hidden; }
+.picbox .pv img { max-height: 100%; max-width: 100%; object-fit: contain; }
+.upl { cursor: pointer; }
+.rtable { border-top: 1.5px solid var(--deep); overflow-x: auto; }
+.rhead, .rrow { display: grid; grid-template-columns: 96px minmax(140px, 1.4fr) minmax(90px, 1fr) 100px 110px 70px 100px minmax(150px, auto); gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--hair); min-width: 940px; }
+.rhead span { font-size: 10.5px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--blue); }
+.rrow .code { font-family: var(--display); font-weight: 700; color: var(--deep); letter-spacing: .08em; }
+.rrow .acts { display: flex; gap: 6px; justify-content: flex-end; }
+.st { display: inline-block; padding: 4px 8px; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; border: 1px solid var(--hair); color: var(--muted); }
+.st-question, .st-reveal { color: #fff; background: var(--deep); border-color: var(--deep); }
+.st-lobby { color: var(--deep); border-color: var(--deep); }
+
+/* admin textareas use the brand font, not the browser monospace default */
+textarea.input, .input.area { font-family: var(--latin); font-size: 17px; line-height: 1.5; resize: vertical; }

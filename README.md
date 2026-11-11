@@ -6,7 +6,7 @@ Dressed in the HR premium identity (SATO-DIS-2026-01 raised to premium).
 
 Live: https://omar-3-xx.github.io/sato-quiz-app/
 
-Quizzes: Rep Brain Test (10), Mind Tricks (10), Mind Tricks: Full (40).
+Quizzes: Rep Brain Test (10), Mind Tricks (10), Mind Tricks: Full (40), Test Drive (4). All quizzes and questions are managed in the admin pages.
 
 ## Running a session
 1. On the laptop connected to the projector, open the site and choose **Host a quiz** (or add `?host` to the address).
@@ -16,6 +16,14 @@ Quizzes: Rep Brain Test (10), Mind Tricks (10), Mind Tricks: Full (40).
 5. Choose **Next question** after each answer. After the last one, the final ranking shows the podium; number one wins the gift.
 
 Keep the same browser on the same laptop for the whole session: host controls only work where the room was opened.
+
+## Quiz admin
+Open the site with `?admin` (or the **Quiz admin** link) and enter the 6-digit admin PIN.
+- **Quizzes:** add, rename, reorder, hide or delete quizzes; add, edit, reorder or delete questions. Each question has 2 to 4 options, the correct answer, a time limit (5 to 120 seconds), a label, an explanation shown after the answer, and an optional question picture and answer picture (upload or paste a link).
+- **Rooms:** see every room with its status, players and progress; end or delete a room.
+- **Settings:** change the admin PIN.
+
+Rooms keep the question list they were opened with, so editing a quiz during a live session does not disturb it.
 
 ## How it works
 A static site (this repo) on GitHub Pages, with Supabase for live state. All timing and scoring run in the database, and the answer keys never reach the phones before the reveal.
