@@ -174,10 +174,15 @@
     }
     var S = null, acting = false, startLocal = 0, lastSig = "", lastDraw = "";
     var joinUrl = BASE + "?join=" + code;
-    function act(action) {
-      if (acting || !S) return; acting = true;
+    /* Automatic reveals skip while a request is in flight. A host click always goes through: the server
+       applies an action only to the question it names (p_from), so a repeat can never skip one. */
+    function act(action, btn) {
+      if (!S || (acting && !btn)) return;
+      if (btn) btn.disabled = true;
+      acting = true;
       rpc("quiz_host_action", { p_code: code, p_host_key: key, p_action: action, p_from: S.q_index })
-        .catch(function (e) { toast(e.message); }).then(function () { acting = false; poll.now(); });
+        .catch(function (e) { toast(e.message); if (btn) btn.disabled = false; })
+        .then(function () { acting = false; poll.now(); });
     }
     function optsHtml(item, reveal) {
       var total = 0, dist = S.dist || {};
@@ -200,7 +205,7 @@
           (S.players.length ? '<div class="names">' + S.players.map(function (p) { return '<span><i class="dia"></i><span class="nm">' + esc(p) + '</span></span>'; }).join("") + '</div>' : waiting("Waiting for the first player")) +
           '<p class="callout">Most correct answers first, then the fastest total time on correct answers. Only number one wins the gift.</p>' +
           '<div><button class="btn big" id="start"' + (S.players.length ? "" : " disabled") + '>Start the quiz</button></div></div></div>');
-        document.getElementById("start").addEventListener("click", function () { act("next"); });
+        document.getElementById("start").addEventListener("click", function () { act("next", this); });
       } else if (S.status === "question") {
         var item = q.items[S.q_index];
         chrome({ host: S.host, section: "Question " + pad(S.q_index + 1) + " of " + pad(S.total), no: pad(S.q_index + 1), left: joinTag });
@@ -211,7 +216,7 @@
           '<div class="strip"><div><span class="micro">Time left</span><span class="v" id="left">' + S.duration + '</span></div><div><span class="micro">Answered</span><span class="v" id="ans">' + S.answered + " / " + S.players.length + '</span></div></div>' +
           '<div class="timeline" id="tl" style="width:100%"></div>' +
           '<div><button class="btn line" id="reveal">Reveal the answer</button></div></div></div></div>');
-        document.getElementById("reveal").addEventListener("click", function () { act("reveal"); });
+        document.getElementById("reveal").addEventListener("click", function () { act("reveal", this); });
       } else if (S.status === "reveal") {
         var it = q.items[S.q_index], last = S.q_index + 1 >= S.total;
         chrome({ host: S.host, section: "Answer " + pad(S.q_index + 1) + " of " + pad(S.total), no: pad(S.q_index + 1), left: joinTag });
@@ -223,7 +228,7 @@
           '<dl class="facts"><div><dt>Fastest correct</dt><dd>' + (S.fastest ? "<b>" + esc(S.fastest.name) + "</b> · " + secs(S.fastest.ms) : "Nobody this time. A tricky one!") + '</dd></div></dl>' +
           '<p class="shead micro">Ranking so far</p>' + boardHtml(S.board || [], S.total, 3) +
           '<div><button class="btn big" id="next">' + (last ? "Show the final ranking" : "Next question") + '</button></div></div></div></div>');
-        document.getElementById("next").addEventListener("click", function () { act("next"); });
+        document.getElementById("next").addEventListener("click", function () { act("next", this); });
       } else {
         var b = S.board || [], w = b[0];
         chrome({ host: S.host, section: "Final ranking ◆", no: "", left: S.players.length + " players", closing: true });
