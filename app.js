@@ -90,6 +90,86 @@
   var rsz; window.addEventListener("resize", function () { clearTimeout(rsz); rsz = setTimeout(function () { drawFrame(); drawBand(); }, 120); });
 
   var GIFT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square" aria-hidden="true"><rect x="3" y="8" width="18" height="4"/><path d="M12 8v13M19 12v9H5v-9"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5"/></svg>';
+  /* ---------- motion: diamond bursts, haptics, sound, countdown ---------- */
+  var REDUCED = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+  var FX = { c: null, g: null, P: [], run: false };
+  function burst(o) {
+    if (REDUCED) return;
+    o = o || {};
+    if (!FX.c) { FX.c = document.createElement("canvas"); FX.c.id = "fx"; document.body.appendChild(FX.c); FX.g = FX.c.getContext("2d"); }
+    var W = innerWidth, H = innerHeight, dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (FX.c.width !== W * dpr) { FX.c.width = W * dpr; FX.c.height = H * dpr; FX.g.setTransform(dpr, 0, 0, dpr, 0, 0); }
+    var cols = o.colors || ["#0A527D", "#0A6BA6", "#1482C2", "#9ED3F0"], n = o.count || 80, ox = (o.x == null ? .5 : o.x) * W, oy = (o.y == null ? .45 : o.y) * H;
+    for (var k = 0; k < n; k++) {
+      var ang = Math.random() * Math.PI * 2, sp = (o.power || 9) * (.35 + Math.random());
+      FX.P.push({ x: ox, y: oy, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - (o.lift || 5), s: 4 + Math.random() * 7, r: Math.random() * 6, vr: (Math.random() - .5) * .3, c: cols[k % cols.length], life: 0, max: 110 + Math.random() * 60 });
+    }
+    if (!FX.run) { FX.run = true; requestAnimationFrame(fxFrame); }
+  }
+  function fxFrame() {
+    var g = FX.g, W = innerWidth, H = innerHeight;
+    g.clearRect(0, 0, W, H);
+    FX.P = FX.P.filter(function (q) { return q.life < q.max && q.y < H + 40; });
+    FX.P.forEach(function (q) {
+      q.life++; q.vy += .26; q.vx *= .985; q.x += q.vx; q.y += q.vy; q.r += q.vr;
+      g.save(); g.globalAlpha = Math.max(0, 1 - Math.pow(q.life / q.max, 2)); g.translate(q.x, q.y); g.rotate(q.r); g.fillStyle = q.c; g.fillRect(-q.s / 2, -q.s / 2, q.s, q.s); g.restore();
+    });
+    if (FX.P.length) requestAnimationFrame(fxFrame); else { FX.run = false; g.clearRect(0, 0, W, H); }
+  }
+  var GOLD = ["#C9A45C", "#E4CC8E", "#A8843F", "#F1F4F8"];
+  function buzz(p) { try { if (navigator.vibrate) navigator.vibrate(p); } catch (e) {} }
+
+  var SND = { ctx: null, on: store("satoquiz:sound") !== false };
+  function audio() {
+    try { if (!SND.ctx) SND.ctx = new (window.AudioContext || window.webkitAudioContext)(); if (SND.ctx.state === "suspended") SND.ctx.resume(); } catch (e) {}
+    return SND.ctx;
+  }
+  function tone(f, dur, type, vol, when) {
+    var c = SND.ctx; if (!SND.on || !c || c.state !== "running") return;
+    var t = c.currentTime + (when || 0), o = c.createOscillator(), g = c.createGain();
+    o.type = type || "sine"; o.frequency.setValueAtTime(f, t);
+    g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(vol || .15, t + .012); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+    o.connect(g); g.connect(c.destination); o.start(t); o.stop(t + dur + .05);
+  }
+  var SFX = {
+    blip: function () { tone(880, .08, "sine", .1); tone(1320, .09, "sine", .07, .06); },
+    count: function () { tone(587, .16, "square", .07); },
+    go: function () { tone(880, .1, "square", .1); tone(1175, .3, "square", .1, .09); },
+    tick: function () { tone(1250, .035, "square", .045); },
+    reveal: function () { [523, 659, 784].forEach(function (f, i) { tone(f, .2, "triangle", .13, i * .07); }); },
+    drum: function () { for (var i = 0; i < 18; i++) tone(98 + i * 4, .05, "square", .045 + i * .002, i * .11); },
+    fanfare: function () { [523, 659, 784, 1047].forEach(function (f, i) { tone(f, .24, "triangle", .15, i * .11); }); tone(1047, 1.1, "triangle", .13, .46); tone(1319, 1.1, "sine", .07, .46); tone(1568, 1.1, "sine", .05, .5); }
+  };
+
+  /* the 3 · 2 · 1 · GO overlay, driven by the server's start time */
+  var CD = { el: null, last: null };
+  function countdown(msToGo, label) {
+    if (msToGo <= -650) { hideCountdown(); return; }
+    if (!CD.el) {
+      CD.el = document.createElement("div"); CD.el.className = "cd"; CD.el.setAttribute("aria-live", "assertive");
+      CD.el.innerHTML = '<div class="box"><span class="micro"></span><span class="big"></span><span class="ringd" hidden></span></div>';
+      document.body.appendChild(CD.el);
+    }
+    var sec = msToGo > 0 ? Math.ceil(msToGo / 1000) : 0;
+    CD.el.classList.add("on");
+    if (sec === CD.last) return null;
+    CD.last = sec;
+    CD.el.querySelector(".micro").textContent = label;
+    var big = CD.el.querySelector(".big"), ring = CD.el.querySelector(".ringd");
+    big.className = "big"; void big.offsetWidth; big.className = "big " + (sec > 0 ? "n" : "go"); big.textContent = sec > 0 ? String(sec) : "GO";
+    ring.hidden = sec > 0; if (!ring.hidden) { ring.style.animation = "none"; void ring.offsetWidth; ring.style.animation = ""; }
+    return sec;
+  }
+  function hideCountdown() { if (CD.el) CD.el.classList.remove("on"); CD.last = null; }
+  function release(id, stagSel) {
+    var el = document.getElementById(id);
+    if (!el || !el.classList.contains("hold")) return false;
+    el.classList.remove("hold"); el.classList.add("anim");
+    if (stagSel) { var s = el.querySelector(stagSel); if (s) s.classList.add("stag"); }
+    return true;
+  }
+  function bump(el) { if (!el) return; el.classList.remove("bump"); void el.offsetWidth; el.classList.add("bump"); }
+
   function zoom(src) { var z = document.createElement("div"); z.className = "zoom"; z.innerHTML = '<img alt="" src="' + esc(src) + '">'; z.addEventListener("click", function () { z.remove(); }); document.body.appendChild(z); }
   function qrSvg(text) {
     var q = qrcode(0, "M"); q.addData(text); q.make();
@@ -110,8 +190,8 @@
     return h + '</div>';
   }
   function boardHtml(rows, total, limit) {
-    return '<div class="board">' + rows.slice(0, limit).map(function (r) {
-      return '<div class="brow' + (r.rank === 1 ? " first" : "") + '"><span class="pos outline-n">' + r.rank + '</span><span class="nm">' + esc(r.name) + '</span><span class="sc">' + r.correct + "/" + total + '</span><span class="tm">' + secs(r.ms) + '</span></div>';
+    return '<div class="board stag">' + rows.slice(0, limit).map(function (r) {
+      return '<div class="brow' + (r.rank === 1 ? " first" : "") + '" style="--i:' + rows.indexOf(r) + '"><span class="pos outline-n">' + r.rank + '</span><span class="nm">' + esc(r.name) + '</span><span class="sc">' + r.correct + "/" + total + '</span><span class="tm">' + secs(r.ms) + '</span></div>';
     }).join("") + '</div>';
   }
 
@@ -172,13 +252,19 @@
       render('<div class="phone stack">' + hl("This room was opened", "on another device.", "sm") + tick() + '<p class="lead">Host controls only work in the browser that opened the room. Open a new room to continue.</p><div><a class="btn" href="?host">Open a new room</a></div></div>');
       return;
     }
-    var S = null, acting = false, startLocal = 0, lastSig = "", lastDraw = "";
+    var S = null, acting = false, startLocal = 0, lastSig = "", lastDraw = "", seen = {}, lastAns = -1, lastTick = null, revealedAt = null;
     var joinUrl = BASE + "?join=" + code;
+    var mr = document.getElementById("mastRight");
+    mr.innerHTML = '<button class="sound" id="snd" type="button"></button>';
+    function sndLabel() { document.getElementById("snd").textContent = SND.on ? "Sound on" : "Sound off"; }
+    sndLabel();
+    document.getElementById("snd").addEventListener("click", function () { SND.on = !SND.on; store("satoquiz:sound", SND.on); audio(); sndLabel(); if (SND.on) SFX.blip(); });
+    document.addEventListener("pointerdown", function () { audio(); }, { once: true });
     /* Automatic reveals skip while a request is in flight. A host click always goes through: the server
        applies an action only to the question it names (p_from), so a repeat can never skip one. */
     function act(action, btn) {
       if (!S || (acting && !btn)) return;
-      if (btn) btn.disabled = true;
+      if (btn) { btn.disabled = true; audio(); }
       acting = true;
       rpc("quiz_host_action", { p_code: code, p_host_key: key, p_action: action, p_from: S.q_index })
         .catch(function (e) { toast(e.message); if (btn) btn.disabled = false; })
@@ -187,30 +273,34 @@
     function optsHtml(item, reveal) {
       var total = 0, dist = S.dist || {};
       Object.keys(dist).forEach(function (k) { total += dist[k]; });
-      return '<div class="opts">' + item.opts.map(function (o, i) {
+      return '<div class="opts' + (reveal ? " stag" : "") + '">' + item.opts.map(function (o, i) {
         var n = dist[String(i)] || 0, pct = total ? n / total : 0;
         var cls = reveal ? (i === S.correct ? " correct" : " dim") : "";
-        return '<div class="opt' + cls + '"><span class="L outline-n">' + LETTERS[i] + '</span><span>' + esc(o) + '</span>' +
+        return '<div class="opt' + cls + '" style="--i:' + i + '"><span class="L outline-n">' + LETTERS[i] + '</span><span>' + (o === LETTERS[i] ? "" : esc(o)) + '</span>' +
           (reveal ? '<span class="count">' + n + '</span><span class="bar" style="width:calc((100% - 64px) * ' + pct.toFixed(3) + ')"></span>' : "<span></span>") + '</div>';
       }).join("") + '</div>';
     }
     function draw() {
       var q = quiz(S.quiz_id), joinTag = "Join " + fmtCode(code), tp = titleParts(q.title);
+      if (S.status !== "question") hideCountdown();
       if (S.status === "lobby") {
         chrome({ host: S.host, section: "The room is open", no: "00", left: joinTag });
         render('<div class="two">' +
-          '<div class="plate stack" style="align-items:center;padding:26px"><p class="micro" style="margin:0">Scan to join</p><div class="qr">' + qrSvg(joinUrl) + '</div>' +
+          '<div class="plate stack qr-plate" style="align-items:center;padding:26px"><p class="micro" style="margin:0">Scan to join</p><div class="qr">' + qrSvg(joinUrl) + '</div>' +
           '<p class="micro" style="margin:0;color:var(--muted)">or open the link and type the code</p><div class="bigcode">' + fmtCode(code) + '</div><div class="url">' + esc(joinUrl) + '</div></div>' +
           '<div class="stack" style="gap:20px">' + chapter(pad(S.players.length), "Players in the room") + hl(tp[0], tp[1], "sm") +
-          (S.players.length ? '<div class="names">' + S.players.map(function (p) { return '<span><i class="dia"></i><span class="nm">' + esc(p) + '</span></span>'; }).join("") + '</div>' : waiting("Waiting for the first player")) +
+          (S.players.length ? '<div class="names">' + S.players.map(function (p) { var isNew = !seen[p]; seen[p] = 1; return '<span' + (isNew ? ' class="new"' : "") + '><i class="dia"></i><span class="nm">' + esc(p) + '</span></span>'; }).join("") + '</div>' : waiting("Waiting for the first player")) +
           '<p class="callout">Most correct answers first, then the fastest total time on correct answers. Only number one wins the gift.</p>' +
           '<div><button class="btn big" id="start"' + (S.players.length ? "" : " disabled") + '>Start the quiz</button></div></div></div>');
         document.getElementById("start").addEventListener("click", function () { act("next", this); });
+        if (S.players.length) SFX.blip();
       } else if (S.status === "question") {
         var item = q.items[S.q_index];
         chrome({ host: S.host, section: "Question " + pad(S.q_index + 1) + " of " + pad(S.total), no: pad(S.q_index + 1), left: joinTag });
+        var hold = Date.now() < startLocal;
+        lastAns = S.answered; lastTick = null;
         render('<div class="stack" style="gap:22px">' + routeHtml(S.q_index, S.total) +
-          '<div class="two"><div class="plate figure"><img alt="Question picture" src="' + esc(item.img) + '"></div>' +
+          '<div class="two' + (hold ? " hold" : " anim") + '" id="qbody"><div class="plate figure"><img alt="Question picture" src="' + esc(item.img) + '"></div>' +
           '<div class="stack"><div class="qhead"><span class="outline-n">' + pad(S.q_index + 1) + '</span><span class="micro" style="padding-bottom:8px">' + esc(item.tag) + ' · of ' + S.total + '</span></div>' +
           '<h2 class="qtext">' + esc(item.q) + '</h2>' + optsHtml(item, false) +
           '<div class="strip"><div><span class="micro">Time left</span><span class="v" id="left">' + S.duration + '</span></div><div><span class="micro">Answered</span><span class="v" id="ans">' + S.answered + " / " + S.players.length + '</span></div></div>' +
@@ -226,9 +316,11 @@
           '<div class="stack"><div class="qhead"><span class="outline-n">' + pad(S.q_index + 1) + '</span><span class="micro" style="padding-bottom:8px">The answer</span></div>' +
           '<h2 class="qtext">' + esc(it.q) + '</h2>' + optsHtml(it, true) +
           '<dl class="facts"><div><dt>Fastest correct</dt><dd>' + (S.fastest ? "<b>" + esc(S.fastest.name) + "</b> · " + secs(S.fastest.ms) : "Nobody this time. A tricky one!") + '</dd></div></dl>' +
+          ((S.gomode || []).length ? '<p class="shead micro">Go mode</p><div class="gm-list">' + S.gomode.slice(0, 6).map(function (g, k) { return '<span style="animation-delay:' + (0.5 + k * 0.12) + 's"><i class="dia on"></i>' + esc(g.name) + ' <b>' + g.streak + ' in a row</b></span>'; }).join("") + '</div>' : "") +
           '<p class="shead micro">Ranking so far</p>' + boardHtml(S.board || [], S.total, 3) +
           '<div><button class="btn big" id="next">' + (last ? "Show the final ranking" : "Next question") + '</button></div></div></div></div>');
         document.getElementById("next").addEventListener("click", function () { act("next", this); });
+        if (revealedAt !== S.q_index) { revealedAt = S.q_index; setTimeout(SFX.reveal, 150); }
       } else {
         var b = S.board || [], w = b[0];
         chrome({ host: S.host, section: "Final ranking ◆", no: "", left: S.players.length + " players", closing: true });
@@ -237,19 +329,34 @@
           return '<div class="gplate ' + cls + '"><div class="rank">' + r.rank + '</div><div class="who">' + esc(r.name) + '</div><div class="sub">' + r.correct + "/" + S.total + " correct · " + secs(r.ms) + '</div>' +
             (r.rank === 1 ? '<div class="gift">' + GIFT + 'Wins the gift</div>' : "") + '</div>';
         };
-        render('<div class="stack" style="gap:34px"><div class="end-hero"><div><p class="kicker micro"><b></b>' + esc(q.title) + ' · Complete</p>' +
-          '<h1 class="end-hl" style="margin-top:18px">' + (w ? "The winner is" : "No winner") + '<b>' + (w ? esc(w.name) + "." : "this time.") + '</b></h1>' + tick() +
+        render('<div class="stack seq" style="gap:34px"><div class="end-hero"><div><p class="kicker micro"><b></b>' + esc(q.title) + ' · Complete</p>' +
+          '<h1 class="end-hl" style="margin-top:18px"><span>' + (w ? "The winner is" : "No winner") + '</span><b>' + (w ? esc(w.name) + "." : "this time.") + '</b></h1>' + tick() +
           '<p class="lead">' + S.players.length + ' players, ' + S.total + ' questions. Ranked by correct answers first, then by the fastest total time.</p></div>' +
           (w ? '<div class="stamp"><div><span class="micro">Number one</span><strong>The gift</strong>' + GIFT + '</div></div>' : "") + '</div>' +
           '<div class="podium">' + plate(b[1], "p2") + plate(b[0], "p1") + plate(b[2], "p3") + '</div>' +
-          (b.length > 3 ? '<div class="stack" style="max-width:820px;width:100%;margin:0 auto"><p class="kicker micro"><b></b>Places 4 to ' + Math.min(10, b.length) + '</p>' + boardHtml(b.slice(3), S.total, 7) + '</div>' : "") +
-          '<div class="row" style="justify-content:center"><a class="btn line" href="?host">Start a new session</a></div></div>');
+          '<div class="rest stack" style="gap:30px">' + (b.length > 3 ? '<div class="stack" style="max-width:820px;width:100%;margin:0 auto"><p class="kicker micro"><b></b>Places 4 to ' + Math.min(10, b.length) + '</p>' + boardHtml(b.slice(3), S.total, 7) + '</div>' : "") +
+          '<div class="row" style="justify-content:center"><a class="btn line" href="?host">Start a new session</a></div></div></div>');
+        if (w) {
+          setTimeout(SFX.drum, 200);
+          setTimeout(function () { SFX.fanfare(); burst({ colors: GOLD, count: 170, power: 13, y: .62, lift: 7 }); }, REDUCED ? 0 : 2300);
+          setTimeout(function () { burst({ colors: GOLD, count: 70, power: 9, x: .2, y: .7 }); burst({ colors: GOLD, count: 70, power: 9, x: .8, y: .7 }); }, REDUCED ? 0 : 3100);
+        }
       }
     }
     function tickTimer() {
       if (!S || S.status !== "question") return;
+      var toGo = startLocal - Date.now();
+      var sec = countdown(toGo, "Question " + pad(S.q_index + 1) + " · " + quiz(S.quiz_id).items[S.q_index].tag);
+      if (sec != null && sec > 0) SFX.count();
+      if (sec === 0) SFX.go();
+      if (toGo > 0) return;
+      release("qbody", ".opts");
       var left = S.duration - (Date.now() - startLocal) / 1000, el = document.getElementById("left"), tl = document.getElementById("tl");
-      if (el) { el.textContent = Math.max(0, Math.ceil(left)); tl.style.width = Math.max(0, 100 * left / S.duration) + "%"; tl.classList.toggle("low", left <= 5); }
+      if (el) {
+        var s = Math.max(0, Math.ceil(left));
+        el.textContent = s; tl.style.width = Math.max(0, 100 * left / S.duration) + "%"; tl.classList.toggle("low", left <= 5); el.classList.toggle("low", left <= 5 && left > 0);
+        if (left <= 5 && left > 0 && s !== lastTick) { lastTick = s; SFX.tick(); }
+      }
       if (left <= -0.6 || (S.players.length && S.answered >= S.players.length)) act("reveal");
     }
     setInterval(tickTimer, 250);
@@ -260,7 +367,7 @@
         var full = sig + "|" + (s.status === "lobby" ? s.players.length : "") + (s.status === "finished" || s.status === "reveal" ? JSON.stringify(s.board) : "");
         S = s; lastSig = sig;
         if (full !== lastDraw) { lastDraw = full; draw(); window.scrollTo(0, 0); }
-        else if (s.status === "question") { var a = document.getElementById("ans"); if (a) a.textContent = s.answered + " / " + s.players.length; }
+        else if (s.status === "question") { var a = document.getElementById("ans"); if (a) { a.textContent = s.answered + " / " + s.players.length; if (s.answered !== lastAns) { lastAns = s.answered; bump(a); SFX.blip(); } } }
       }).catch(function (e) {
         if (/not found/i.test(e.message)) { poll.stop(); render('<div class="phone stack">' + hl("Room", "not found.", "sm") + '<p class="lead">' + esc(e.message) + '</p><div><a class="btn" href="?host">Open a new room</a></div></div>'); }
       });
@@ -271,9 +378,10 @@
   function player(code) {
     var me = store("satoquiz:player:" + code);
     if (!me) return joinForm(code);
-    var S = null, lastKey = "", startLocal = 0, picking = false, pending = null;
+    var S = null, lastKey = "", startLocal = 0, picking = false, pending = null, cdFired = {};
     function draw() {
       var q = quiz(S.quiz_id);
+      if (S.status !== "question") hideCountdown();
       if (S.status === "lobby") {
         chrome({ host: S.host, section: "Lobby", no: "00" });
         render('<div class="phone stack">' + chapter(pad(S.players), "Players in the room") + '<div>' + hl("You're in,", S.name.split(" ")[0] + ".", "sm") + '</div>' + tick() +
@@ -282,22 +390,25 @@
       } else if (S.status === "question") {
         var item = q.items[S.q_index], mine = S.my_choice != null ? S.my_choice : pending;
         chrome({ host: S.host, section: "Question " + pad(S.q_index + 1) + " of " + pad(S.total), no: pad(S.q_index + 1) });
-        render('<div class="phone stack" style="gap:14px"><div class="ptop"><span class="left"><span class="outline-n">' + pad(S.q_index + 1) + '</span><span class="micro" style="padding-bottom:6px">of ' + S.total + '</span></span><span class="secs" id="secs">' + S.duration + ' s</span></div>' +
+        var hold = Date.now() < startLocal;
+        render('<div class="phone stack' + (hold ? " hold" : " anim") + '" id="qbody" style="gap:14px"><div class="ptop"><span class="left"><span class="outline-n">' + pad(S.q_index + 1) + '</span><span class="micro" style="padding-bottom:6px">of ' + S.total + '</span></span><span class="secs" id="secs">' + S.duration + ' s</span></div>' +
           '<div class="timeline" id="tl" style="width:100%"></div><h2 class="qtext" style="font-size:22px">' + esc(item.q) + '</h2>' +
           '<div class="plate pimg" id="pimg" style="padding:10px"><img alt="Question picture, tap to enlarge" src="' + esc(item.img) + '"></div>' +
           '<div class="answers">' + item.opts.map(function (o, i) {
-            return '<button class="answer" data-i="' + i + '" aria-pressed="' + (mine === i) + '"' + (mine != null ? " disabled" : "") + '><span class="L outline-n">' + LETTERS[i] + '</span><span>' + esc(o) + '</span><span class="dia"></span></button>';
+            return '<button class="answer" style="--i:' + i + '" data-i="' + i + '" aria-pressed="' + (mine === i) + '"' + (mine != null ? " disabled" : "") + '><span class="L outline-n">' + LETTERS[i] + '</span><span>' + (o === LETTERS[i] ? "Picture " + LETTERS[i] : esc(o)) + '</span><span class="dia"></span></button>';
           }).join("") + '</div><div id="lock">' + (mine != null ? waiting("Answer " + LETTERS[mine] + " is locked in") : "") + '</div></div>');
         document.getElementById("pimg").addEventListener("click", function () { zoom(item.img); });
         app.querySelectorAll(".answer").forEach(function (b) { b.addEventListener("click", function () { pick(+b.dataset.i); }); });
       } else if (S.status === "reveal") {
         var it = q.items[S.q_index], cls, head;
         chrome({ host: S.host, section: "Answer " + pad(S.q_index + 1) + " of " + pad(S.total), no: pad(S.q_index + 1) });
-        if (S.my_choice == null) { cls = "result-none"; head = hl("No answer", "this time.", "sm"); }
-        else if (S.my_correct) { cls = "result-right"; head = hl("Correct.", secs(S.my_ms), "sm"); }
-        else { cls = "result-wrong"; head = hl("Not this", "time.", "sm"); }
-        render('<div class="phone stack ' + cls + '"><div class="callout">' + head + '</div>' +
+        if (S.my_choice == null) { cls = "result-none"; head = hl("No answer", "this time.", "sm"); buzz(120); }
+        else if (S.my_correct) { cls = "result-right"; head = hl("Correct.", secs(S.my_ms), "sm"); buzz([30, 40, 30]); setTimeout(function () { burst({ count: S.streak >= 3 ? 110 : 60, power: 8, y: .28 }); }, 200); }
+        else { cls = "result-wrong"; head = hl("Not this", "time.", "sm"); buzz(220); }
+        var go = S.my_correct && S.streak >= 3 ? '<div><span class="gomode"><span class="d"></span>Go mode · ' + S.streak + ' in a row</span></div>' : "";
+        render('<div class="phone stack anim ' + cls + '"><div class="callout">' + head + '</div>' + go +
           '<dl class="facts"><div><dt>Correct answer</dt><dd><b style="color:var(--deep)">' + esc(S.answer) + '</b></dd></div>' +
+          (S.live_rank ? '<div><dt>Your rank now</dt><dd><span class="liverank">#' + S.live_rank + '</span> of ' + S.players + '</dd></div>' : "") +
           (S.my_choice != null ? '<div><dt>You picked</dt><dd>' + LETTERS[S.my_choice] + '</dd></div>' : "") + '</dl>' +
           '<p style="margin:0">' + esc(S.explanation) + '</p>' +
           (it.reveal ? '<div class="plate pimg" id="pimg" style="padding:10px"><img alt="Answer picture" src="' + esc(it.reveal) + '"></div>' : "") +
@@ -308,17 +419,19 @@
         chrome({ host: S.host, section: "Final ranking ◆", no: "", closing: true });
         render('<div class="phone stack" style="gap:22px"><p class="kicker micro"><b></b>' + esc(q.title) + ' · Complete</p>' +
           '<div class="row spread" style="align-items:flex-end"><div class="prank' + (win ? " win" : "") + '">#' + rank + '</div>' +
-          (win ? '<div class="stamp" style="width:118px;height:118px"><div><span class="micro">Number one</span><strong style="font-size:22px">The gift</strong>' + GIFT + '</div></div>' : "") + '</div>' +
+          (win ? '<div class="stamp slam" style="width:118px;height:118px"><div><span class="micro">Number one</span><strong style="font-size:22px">The gift</strong>' + GIFT + '</div></div>' : "") + '</div>' +
           '<h1 class="end-hl">' + (win ? "You win" : rank <= 3 ? "Top three," : "Thanks for playing,") + '<b>' + (win ? "the gift." : rank <= 3 ? "well done." : esc(S.name.split(" ")[0]) + ".") + '</b></h1>' + tick() +
           '<p class="lead">' + (win ? "Show this screen to " + esc(S.host) + " to collect your gift." : "You finished #" + rank + " of " + S.players + ". The gift goes to number one.") + '</p>' +
           '<dl class="facts" style="border-top-color:var(--gold)"><div style="border-bottom-color:var(--n-hair)"><dt style="color:var(--gold)">Correct</dt><dd style="color:var(--n-text)">' + S.my_score + " of " + S.total + '</dd></div>' +
           '<div style="border-bottom-color:var(--n-hair)"><dt style="color:var(--gold)">Total time</dt><dd style="color:var(--n-text)">' + secs(S.my_total_ms) + '</dd></div></dl>' +
           '<p class="kicker micro"><b></b>Top three</p>' + boardHtml(top, S.total, 3) + '</div>');
+        if (win) { buzz([60, 60, 60, 60, 300]); setTimeout(function () { burst({ colors: GOLD, count: 150, power: 11, y: .3 }); }, 400); setTimeout(function () { burst({ colors: GOLD, count: 80, power: 9, y: .5 }); }, 1300); }
+        else if (rank <= 3) buzz([40, 40, 40]);
       }
     }
     function pick(i) {
-      if (picking || !S || S.status !== "question" || S.my_choice != null) return;
-      picking = true; pending = i;
+      if (picking || !S || S.status !== "question" || S.my_choice != null || Date.now() < startLocal) return;
+      picking = true; pending = i; buzz(15);
       app.querySelectorAll(".answer").forEach(function (b) { b.disabled = true; b.setAttribute("aria-pressed", String(+b.dataset.i === i)); });
       document.getElementById("lock").innerHTML = waiting("Answer " + LETTERS[i] + " is locked in");
       rpc("quiz_answer", { p_code: code, p_token: me.token, p_q: S.q_index, p_choice: i })
@@ -328,10 +441,15 @@
     }
     function tickTimer() {
       if (!S || S.status !== "question") return;
+      var toGo = startLocal - Date.now();
+      var sec = countdown(toGo, "Question " + pad(S.q_index + 1) + " of " + S.total);
+      if (sec === 0 && !cdFired[S.q_index]) { cdFired[S.q_index] = 1; buzz(60); }
+      if (toGo > 0) return;
+      release("qbody", ".answers");
       var left = S.duration - (Date.now() - startLocal) / 1000, tl = document.getElementById("tl"), sc = document.getElementById("secs");
       if (!tl) return;
       tl.style.width = Math.max(0, 100 * left / S.duration) + "%"; tl.classList.toggle("low", left <= 5);
-      sc.textContent = Math.max(0, Math.ceil(left)) + " s";
+      sc.textContent = Math.max(0, Math.ceil(left)) + " s"; sc.classList.toggle("low", left <= 5 && left > 0);
       if (left <= 0 && S.my_choice == null && pending == null) {
         app.querySelectorAll(".answer").forEach(function (b) { b.disabled = true; });
         var lk = document.getElementById("lock"); if (lk && !lk.innerHTML) lk.innerHTML = waiting("Time is up");
