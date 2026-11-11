@@ -6,7 +6,7 @@ Dressed in the HR premium identity (SATO-DIS-2026-01 raised to premium).
 
 Live: https://omar-3-xx.github.io/sato-quiz-app/
 
-Quizzes: Rep Brain Test (10), Mind Tricks (10), Mind Tricks: Full (40), Test Drive (4). All quizzes and questions are managed in the admin pages.
+Quizzes: Rep Brain Test (10), Mind Tricks (10), Mind Tricks: Easy (10), Mind Tricks: Full (40), Test Drive (4). All quizzes and questions are managed in the admin pages.
 
 ## Running a session
 1. On the laptop connected to the projector, open the site and choose **Host a quiz** (or add `?host` to the address).
