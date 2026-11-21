@@ -30,7 +30,7 @@
   function pad(n) { return String(n).padStart(2, "0"); }
   function fmtCode(c) { return String(c).slice(0, 3) + " " + String(c).slice(3); }
   var UPLOAD_URL = SB_URL + "/functions/v1/quiz-upload";
-  var STILL = false;
+  var STILL = false, MAST_TITLE = null;
   function render(html, still) {
     if (still === undefined) still = STILL;
     STILL = false;
@@ -55,7 +55,8 @@
 
   /* page chrome: masthead subtitle, running foot, closing theme */
   function chrome(o) {
-    document.getElementById("mastSub").textContent = o.host ? "Human Resources · Talent Acquisition · Hosted by " + o.host : "Human Resources · Talent Acquisition · Head Office";
+    document.getElementById("mastSub").textContent = o.host ? "Human Resources · Hosted by " + o.host : "Human Resources · Talent Acquisition · Head Office";
+    document.querySelector(".mast .t").textContent = (o.host && MAST_TITLE) || "New Starter Quiz";
     document.getElementById("footSec").textContent = o.section || "";
     document.getElementById("footNo").textContent = o.no || "";
     document.getElementById("footLeft").textContent = o.left || "";
@@ -224,6 +225,39 @@
     }).join("") + '</div>';
   }
 
+  /* sections ("Module 3 – Non-verbal communication") and questions without a picture */
+  function sectionParts(s) {
+    s = String(s || "");
+    var parts = s.split(/\s+[–—-]\s+/), head = parts[0], m = head.match(/^(.*?)(\d+)\s*$/);
+    var title = parts.length > 1 ? parts.slice(1).join(" – ") : "";
+    if (m) return { label: m[1].trim() || "Part", num: pad(+m[2]), n: +m[2], title: title || head, head: head };
+    return { label: "", num: "", n: 0, title: s, head: s };
+  }
+  function isPoll(item) { return !!item && (item.kind === "cloud" || item.kind === "text"); }
+  function topicCard(item, sm) {
+    var p = sectionParts(item.section || item.tag), kind = item.kind || "choice";
+    var foot = kind === "cloud" ? "Word cloud · not scored" : kind === "text" ? "Open answer · not scored" : (/scenario/i.test(item.tag || "") ? "Scenario question" : "Question");
+    return '<div class="plate topic' + (sm ? " sm" : "") + '"><i class="td a"></i><i class="td b"></i><span class="micro">' + esc(p.label || "Topic") + '</span>' + (p.num ? '<span class="tn outline-n">' + p.num + '</span>' : "") +
+      '<h3>' + esc(p.title) + '</h3><span class="tk"><i class="dia on"></i><span class="micro">' + esc(foot) + (item.secs ? " · " + item.secs + " s" : "") + '</span></span></div>';
+  }
+  function figHtml(src, item, sm, alt) {
+    return src ? '<div class="plate figure' + (sm ? " sm" : "") + '"><img alt="' + (alt || "Question picture") + '" src="' + esc(src) + '"></div>' : topicCard(item || {}, sm);
+  }
+  /* live poll responses: a word cloud, or a wall of short answers. Only new entries animate. */
+  function respHtml(kind, list, seen) {
+    list = list || []; seen = seen || {};
+    if (!list.length) return waiting(kind === "cloud" ? "Words appear here as they arrive" : "Answers appear here as they arrive");
+    if (kind === "cloud") {
+      var max = list[0].n, min = list[list.length - 1].n, ord = [];
+      list.forEach(function (x, i) { if (i % 2) ord.push(x); else ord.unshift(x); });
+      return '<div class="cloud">' + ord.map(function (x, i) {
+        var t = max === min ? 0.45 : (x.n - min) / (max - min), k = "w:" + x.w + ":" + x.n, isNew = !seen[k]; seen[k] = 1;
+        return '<span class="cw' + (isNew ? " new" : "") + (t > 0.66 ? " big" : "") + '" style="--s:' + (0.95 + t * 2.4).toFixed(2) + ';--i:' + (i % 12) + '">' + esc(x.w) + (x.n > 1 ? '<sup>' + x.n + '</sup>' : "") + '</span>';
+      }).join("") + '</div>';
+    }
+    return '<div class="wall">' + list.map(function (x, i) { var k = "t:" + x.t, isNew = !seen[k]; seen[k] = 1; return '<div class="wcard' + (isNew ? " new" : "") + '" style="--i:' + (i % 12) + '">' + esc(x.t) + '</div>'; }).join("") + '</div>';
+  }
+
   /* ---------- landing ---------- */
   function landing() {
     chrome({ section: "Welcome", no: "01" });
@@ -263,15 +297,26 @@
     render('<div class="stack" style="gap:22px">' +
       '<div class="row spread" style="align-items:flex-end;gap:24px">' + hl("Tap a quiz", "to open its room.", "sm") +
       '<div class="field" style="flex:0 1 320px;min-width:220px"><label for="hostName">Host name shown on screens</label><input id="hostName" class="input" maxlength="40" value="' + esc(hostName) + '"></div></div>' +
-      '<div id="hostErr" class="error" hidden></div><div id="pick">' + waiting("Loading the quizzes") + '</div>' +
+      '<div id="hostErr" class="error" hidden></div><div id="mine"></div><div id="pick">' + waiting("Loading the quizzes") + '</div>' +
       '<p class="muted" style="margin:0;font-size:14px">Preview as admin shows every question with its answer before you open the room. Players never see it. <a href="?admin">Quiz admin</a></p></div>');
+    var mine = [];
+    try { for (var mi = 0; mi < localStorage.length; mi++) { var mk = localStorage.key(mi); if (/^satoquiz:host:\d{6}$/.test(mk)) mine.push(mk.slice(-6)); } } catch (e0) {}
+    if (mine.length) Promise.all(mine.slice(-15).map(function (c) { return rpc("quiz_peek", { p_code: c }).then(function (p) { return { c: c, p: p }; }).catch(function () { return null; }); })).then(function (rs) {
+      var open = rs.filter(function (x) { return x && x.p.status !== "finished"; });
+      if (!open.length) return;
+      var lab = { lobby: "Waiting to start", question: "Live", reveal: "Live", standings: "Module break" };
+      document.getElementById("mine").innerHTML = '<div class="plate stack resume" style="padding:20px 22px"><p class="shead micro">Continue a room you opened on this computer</p>' + open.map(function (x) {
+        return '<a class="rsm" href="?host=' + x.c + '"><span class="code">' + fmtCode(x.c) + '</span><span class="t">' + esc(x.p.title) + '</span><span class="muted">' + (lab[x.p.status] || x.p.status) + ' · ' + x.p.players + ' player' + (x.p.players === 1 ? "" : "s") + '</span><span class="go">Continue</span></a>';
+      }).join("") + '</div>';
+    });
     rpc("quiz_catalog", {}).then(function (list) {
       if (!list.length) { document.getElementById("pick").innerHTML = '<p class="callout">No quizzes are visible yet. Add one in <a href="?admin">Quiz admin</a>.</p>'; return; }
       document.getElementById("pick").innerHTML = '<div class="picker stag">' + list.map(function (q, k) {
         return '<div class="qopt" role="group" aria-label="' + esc(q.title) + '" style="--i:' + k + '" data-id="' + esc(q.id) + '">' +
           '<span class="top"><span class="outline-n">' + pad(k + 1) + '</span><span class="micro" style="flex:1;padding-bottom:6px">' + esc(q.subtitle || "") + '</span></span>' +
-          '<span class="thumb">' + (q.thumb ? '<img alt="" src="' + esc(q.thumb) + '">' : "") + '</span><h3>' + esc(q.title) + '</h3><p>' + esc(q.blurb || "") + '</p>' +
-          '<span class="meta-line">' + q.count + ' question' + (q.count === 1 ? "" : "s") + ' · about ' + estMinutes(q.count, q.secs) + ' min</span>' +
+          (q.thumb ? '<span class="thumb"><img alt="" src="' + esc(q.thumb) + '"></span>' : '<span class="thumb tthumb"><span class="outline-n">' + pad(q.sections || q.count) + '</span><span class="micro">' + (q.sections ? "Modules" : "Questions") + '</span></span>') +
+          '<h3>' + esc(q.title) + '</h3><p>' + esc(q.blurb || "") + '</p>' +
+          '<span class="meta-line">' + (q.count - (q.polls || 0)) + ' question' + (q.count - (q.polls || 0) === 1 ? "" : "s") + (q.polls ? ' · ' + q.polls + ' reflection' + (q.polls === 1 ? "" : "s") : "") + ' · about ' + estMinutes(q.count, q.secs) + ' min</span>' +
           '<button type="button" class="open-cta" data-act="open"><span class="lbl">Open the room</span><span class="arr" aria-hidden="true"></span></button>' +
           '<button type="button" class="prev-cta" data-act="preview">Preview as admin</button></div>';
       }).join("") + '</div>';
@@ -330,12 +375,14 @@
     function draw() {
       var total = data.questions.length;
       if (!total) { chrome({ section: "Admin preview", no: "" }); render('<div class="phone stack">' + hl("No questions", "yet.", "sm") + '<p class="lead">Add questions in Quiz admin first.</p><div class="row"><a class="btn" href="?admin">Quiz admin</a><a class="btn line" href="?host">Back</a></div></div>'); return; }
-      var it = data.questions[idx], num = pad(idx + 1);
+      var it = data.questions[idx], num = pad(idx + 1), poll = isPoll(it);
       chrome({ section: "Admin preview · " + num + " of " + pad(total), no: num, left: "Not visible to players" });
-      var opts = '<div class="opts stag">' + it.opts.map(function (o, i) {
+      var opts = poll ? '<p class="callout">' + (it.kind === "cloud" ? "Word cloud: players type one word and the big screen builds a live word cloud." : "Open answer: players type a sentence and the big screen shows every answer.") + ' Reflections are not scored.</p>' : '<div class="opts stag">' + it.opts.map(function (o, i) {
         var c = i === it.correct;
         return '<div class="opt' + (c ? " correct" : " dim") + '" style="--i:' + i + '"><span class="L outline-n">' + LETTERS[i] + '</span><span>' + (picOnly(it.opts) ? "" : esc(o)) + '</span><span>' + (c ? '<span class="micro">Correct</span>' : "") + '</span></div>';
       }).join("") + '</div>';
+      if (it.section && (idx === 0 || data.questions[idx - 1].section !== it.section)) opts += '<p class="muted" style="margin:0;font-size:14px">First question of <b>' + esc(it.section) + '</b>.</p>';
+      if (it.section && idx < total - 1 && data.questions[idx + 1].section !== it.section) opts += '<p class="muted" style="margin:0;font-size:14px">After this one the room pauses on the module leaderboard.</p>';
       var route = total <= 12 ? '<div class="route prev-route">' + data.questions.map(function (_, j) {
         return '<div class="' + (j < idx ? "done" : j === idx ? "here" : "") + '" data-j="' + j + '" role="button" tabindex="0" aria-label="Question ' + (j + 1) + '"><span class="n outline-n">' + pad(j + 1) + '</span><span class="dot"></span></div>';
       }).join("") + '</div>' : "";
@@ -344,11 +391,11 @@
         '<div class="row spread" style="gap:16px"><p class="kicker-light micro" style="margin:0"><i class="dia on"></i> Admin preview · ' + esc(data.title) + '</p>' +
         '<div class="row" style="gap:10px"><a class="btn line" href="?admin&quiz=' + encodeURIComponent(id) + '">Edit in admin</a><a class="btn line" href="?host">All quizzes</a><button class="btn big" id="goLive">Open the room and show the QR</button></div></div>' +
         route +
-        '<div class="two"><div class="stack"><div class="plate figure sm">' + (img ? '<img alt="Question picture" src="' + esc(img) + '">' : '<p class="muted">No picture</p>') + '</div>' +
+        '<div class="two"><div class="stack">' + figHtml(img, it, true) +
         (it.reveal ? '<div><button class="btn line" id="flip">' + (showReveal ? "Show the question picture" : "Show the answer picture") + '</button></div>' : "") + '</div>' +
         '<div class="stack"><div class="qhead"><span class="outline-n">' + num + '</span><span class="micro" style="padding-bottom:8px">' + esc(it.tag || "Question") + ' · of ' + total + '</span></div>' +
         '<h2 class="qtext">' + esc(it.q) + '</h2>' + opts +
-        '<p class="callout explain"><b>' + esc(it.answer) + '.</b> ' + esc(it.explanation) + '</p>' +
+        (poll ? (it.explanation ? '<p class="callout explain">' + esc(it.explanation) + '</p>' : "") : '<p class="callout explain"><b>' + esc(it.answer) + '.</b> ' + esc(it.explanation) + '</p>') +
         '<dl class="facts"><div><dt>Time limit</dt><dd>' + it.secs + ' seconds, after a 3-second countdown</dd></div></dl>' +
         '<div class="row" style="gap:10px"><button class="btn line" id="prevQ"' + (idx === 0 ? " disabled" : "") + '>Previous</button><button class="btn line" id="nextQ"' + (idx === total - 1 ? " disabled" : "") + '>Next question</button>' +
         (total > 12 ? '<span class="muted" style="font-size:14px">Use the arrow keys to move</span>' : "") + '</div></div></div></div>');
@@ -415,18 +462,20 @@
         (isNew ? '<button class="btn line" data-act="cancel-new">Cancel</button>' : '<a class="btn line" href="?preview=' + encodeURIComponent(z.id) + '">Preview</a>') + '</div>' + del + '</div></div>';
     }
     function questionsHtml(z) {
-      var tags = {}; D.quizzes.forEach(function (q) { q.questions.forEach(function (x) { if (x.tag) tags[x.tag] = 1; }); });
-      var dl = '<datalist id="tagList">' + Object.keys(tags).sort().map(function (t) { return '<option value="' + esc(t) + '">'; }).join("") + '</datalist>';
+      var tags = {}, secMap = {}; D.quizzes.forEach(function (q) { q.questions.forEach(function (x) { if (x.tag) tags[x.tag] = 1; if (x.section && q.id === z.id) secMap[x.section] = 1; }); });
+      var dl = '<datalist id="tagList">' + Object.keys(tags).sort().map(function (t) { return '<option value="' + esc(t) + '">'; }).join("") + '</datalist>' +
+        '<datalist id="secList">' + Object.keys(secMap).map(function (t) { return '<option value="' + esc(t) + '">'; }).join("") + '</datalist>';
       var total = z.questions.reduce(function (s, x) { return s + x.secs; }, 0);
       var head = '<div class="row spread"><p class="shead micro" style="flex:1">Questions · ' + z.questions.length + ' · about ' + estMinutes(z.questions.length, total) + ' min</p>' +
         (ed ? "" : '<button class="btn" data-act="new-q">Add a question</button>') + '</div>';
       var editor = ed && ed.isNew ? editorHtml(ed, z) : "";
       var rows = z.questions.map(function (x, i) {
         if (ed && !ed.isNew && ed.id === x.id) return editorHtml(ed, z);
-        var conf = confirmKey === "q:" + x.id;
-        return '<div class="qrow" data-qid="' + x.id + '"><span class="n outline-n">' + pad(i + 1) + '</span>' +
+        var conf = confirmKey === "q:" + x.id, sec = x.section && (i === 0 || z.questions[i - 1].section !== x.section) ? '<div class="qsec"><i class="dia on"></i>' + esc(x.section) + '</div>' : "";
+        var kindLbl = x.kind === "cloud" ? "Word cloud · not scored" : x.kind === "text" ? "Open text · not scored" : "Answer " + esc(x.answer);
+        return sec + '<div class="qrow" data-qid="' + x.id + '"><span class="n outline-n">' + pad(i + 1) + '</span>' +
           '<span class="th">' + (x.img ? '<img alt="" src="' + esc(x.img) + '">' : "") + '</span>' +
-          '<span class="body"><b>' + esc(x.q) + '</b><span class="meta">Answer ' + esc(x.answer) + ' · ' + x.secs + ' s' + (x.tag ? " · " + esc(x.tag) : "") + (x.reveal ? " · answer picture" : "") + '</span></span>' +
+          '<span class="body"><b>' + esc(x.q) + '</b><span class="meta">' + kindLbl + ' · ' + x.secs + ' s' + (x.tag ? " · " + esc(x.tag) : "") + (x.reveal ? " · answer picture" : "") + '</span></span>' +
           (conf ? '<span class="acts confirm">Delete? <button class="btn danger sm" data-act="del-q-yes" data-id="' + x.id + '">Delete</button><button class="btn line sm" data-act="cancel-confirm">Keep</button></span>'
             : '<span class="acts"><button class="ibtn" data-act="up" data-i="' + i + '" aria-label="Move up"' + (i === 0 ? " disabled" : "") + '>&#8593;</button><button class="ibtn" data-act="down" data-i="' + i + '" aria-label="Move down"' + (i === z.questions.length - 1 ? " disabled" : "") + '>&#8595;</button>' +
               '<button class="btn line sm" data-act="edit-q" data-id="' + x.id + '">Edit</button><button class="btn line sm danger-line" data-act="del-q" data-id="' + x.id + '">Delete</button></span>') + '</div>';
@@ -434,7 +483,7 @@
       return '<div class="stack" style="gap:12px">' + dl + head + editor + (rows ? '<div class="qrows">' + rows + '</div>' : (ed ? "" : '<p class="callout">No questions yet. Add the first one.</p>')) + '</div>';
     }
     function editorHtml(x, z) {
-      var n = x.opts.length;
+      var n = x.opts.length, kind = x.kind || "choice", poll = kind !== "choice";
       var opts = x.opts.map(function (o, i) {
         return '<div class="optrow"><label class="radio"><input type="radio" name="fCorrect" value="' + i + '"' + (x.correct === i ? " checked" : "") + '><span class="L outline-n">' + LETTERS[i] + '</span></label>' +
           '<input class="input fopt" data-i="' + i + '" maxlength="120" value="' + esc(o) + '" placeholder="Option ' + LETTERS[i] + '">' +
@@ -448,13 +497,17 @@
           (url ? '<button class="btn line sm" data-act="clear-pic" data-k="' + key + '">Remove</button>' : "") + '</div></div>';
       }
       return '<div class="qeditor plate stack" id="qEditor"><p class="shead micro">' + (x.isNew ? "New question" : "Edit question " + pad(z.questions.findIndex(function (q) { return q.id === x.id; }) + 1)) + '</p>' +
+        '<div class="field"><label>Question type</label><div class="row" style="gap:8px">' + [["choice", "Multiple choice"], ["cloud", "Word cloud"], ["text", "Open text"]].map(function (k) {
+          return '<button class="chipbtn wide' + (kind === k[0] ? " on" : "") + '" data-act="kind" data-k="' + k[0] + '">' + k[1] + '</button>'; }).join("") + '</div>' +
+          (poll ? '<span class="help">A reflection poll: players type their answer and the big screen shows them live. Not scored.</span>' : "") + '</div>' +
         field("fQ", "Question", x.q, { area: true, rows: 2, max: 300 }) +
+        field("fSection", "Module or section · optional", x.section, { list: "secList", max: 80, ph: "e.g. Module 2 – Spoken communication", help: "The room pauses on a module leaderboard when the section changes" }) +
         '<div class="frow">' + field("fTag", "Label or level", x.tag, { list: "tagList", max: 40, ph: "e.g. Easy, Logic" }) +
         '<div class="field"><label for="fSecs">Time limit (seconds)</label><div class="row" style="gap:8px"><input id="fSecs" class="input" type="number" min="5" max="300" value="' + x.secs + '" style="max-width:110px">' +
         [10, 15, 20, 30, 45, 60].map(function (s) { return '<button class="chipbtn' + (x.secs === s ? " on" : "") + '" data-act="secs" data-s="' + s + '">' + s + '</button>'; }).join("") + '</div></div></div>' +
-        '<div class="field"><label>Answer options · tick the correct one</label><div class="opts-ed">' + opts + '</div>' +
-        (n < 4 ? '<div><button class="btn line sm" data-act="add-opt">Add an option</button></div>' : "") + '</div>' +
-        field("fExp", "Explanation shown after the answer", x.explanation, { area: true, rows: 3, max: 600 }) +
+        (poll ? "" : '<div class="field"><label>Answer options · tick the correct one</label><div class="opts-ed">' + opts + '</div>' +
+        (n < 4 ? '<div><button class="btn line sm" data-act="add-opt">Add an option</button></div>' : "") + '</div>') +
+        field("fExp", poll ? "Note shown after the poll · optional" : "Explanation or debrief shown after the answer", x.explanation, { area: true, rows: 3, max: 600 }) +
         '<div class="frow">' + pic("Img", "Question picture", x.img, false) + pic("Rev", "Answer picture", x.reveal, true) + '</div>' +
         '<div id="fErr" class="error" hidden></div>' +
         '<div class="row" style="gap:10px"><button class="btn" data-act="save-q">Save question</button><button class="btn line" data-act="cancel-q">Cancel</button></div></div>';
@@ -465,6 +518,8 @@
       ed.secs = parseInt(document.getElementById("fSecs").value, 10) || 20;
       ed.explanation = document.getElementById("fExp").value;
       ed.img = document.getElementById("fImg").value.trim(); ed.reveal = document.getElementById("fRev").value.trim();
+      ed.section = document.getElementById("fSection").value;
+      if ((ed.kind || "choice") !== "choice") return;
       ed.opts = [].map.call(app.querySelectorAll(".fopt"), function (el) { return el.value; });
       var c = app.querySelector('input[name="fCorrect"]:checked'); ed.correct = c ? +c.value : -1;
     }
@@ -476,7 +531,7 @@
         '<div class="rtable"><div class="rhead"><span>Code</span><span>Quiz</span><span>Host</span><span>Status</span><span>Progress</span><span>Players</span><span>Opened</span><span></span></div>' +
         D.rooms.map(function (r) {
           var conf = confirmKey === "room:" + r.code;
-          var st = { lobby: "Waiting", question: "Live", reveal: "Live", finished: "Finished" }[r.status] || r.status;
+          var st = { lobby: "Waiting", question: "Live", reveal: "Live", standings: "Break", finished: "Finished" }[r.status] || r.status;
           return '<div class="rrow"><span class="code">' + fmtCode(r.code) + '</span><span>' + esc(r.quiz_title || r.quiz_id) + '</span><span>' + esc(r.host) + '</span>' +
             '<span><span class="st st-' + r.status + '">' + st + '</span></span><span>' + (r.q_index < 0 ? "Not started" : Math.min(r.q_index + 1, r.total) + " of " + r.total) + '</span>' +
             '<span>' + r.players + '</span><span class="muted">' + ago(r.created_at) + '</span>' +
@@ -528,7 +583,8 @@
       }
       else if (act === "del-quiz") { confirmKey = "quiz:" + selId; draw(); }
       else if (act === "del-quiz-yes") { adminCall("quiz_admin_delete_quiz", { p_id: selId }).then(function () { toast("Quiz deleted"); selId = null; confirmKey = null; load(); }).catch(function (e) { toast(e.message); }); }
-      else if (act === "new-q") { ed = { isNew: true, q: "", tag: "", secs: 20, opts: ["", "", ""], correct: -1, explanation: "", img: "", reveal: "" }; draw(); document.getElementById("fQ").focus(); }
+      else if (act === "new-q") { var lastQ = z.questions[z.questions.length - 1]; ed = { isNew: true, kind: "choice", section: lastQ ? lastQ.section || "" : "", q: "", tag: "", secs: 20, opts: ["", "", ""], correct: -1, explanation: "", img: "", reveal: "" }; draw(); document.getElementById("fQ").focus(); }
+      else if (act === "kind") { collect(); ed.kind = t.dataset.k; if (ed.kind !== "choice" && ed.secs < 40) ed.secs = ed.kind === "cloud" ? 40 : 60; if (ed.kind === "choice" && ed.opts.length < 2) { ed.opts = ["", "", ""]; ed.correct = -1; } draw(); }
       else if (act === "edit-q") { var x = z.questions.filter(function (q) { return q.id === t.dataset.id; })[0]; ed = JSON.parse(JSON.stringify(x)); ed.opts = ed.opts.slice(); draw(); document.getElementById("qEditor").scrollIntoView({ block: "center" }); }
       else if (act === "cancel-q") { ed = null; draw(); }
       else if (act === "add-opt") { collect(); if (ed.opts.length < 4) ed.opts.push(""); draw(); }
@@ -537,7 +593,7 @@
       else if (act === "clear-pic") { collect(); if (t.dataset.k === "Img") ed.img = ""; else ed.reveal = ""; draw(); }
       else if (act === "save-q") {
         collect(); busy(t, true);
-        var payload = { id: ed.isNew ? "" : ed.id, quiz_id: selId, q: ed.q, tag: ed.tag, secs: ed.secs, opts: ed.opts, correct: ed.correct, explanation: ed.explanation, img: ed.img, reveal: ed.reveal };
+        var payload = { id: ed.isNew ? "" : ed.id, quiz_id: selId, kind: ed.kind || "choice", section: ed.section || "", q: ed.q, tag: ed.tag, secs: ed.secs, opts: ed.opts, correct: ed.correct, explanation: ed.explanation, img: ed.img, reveal: ed.reveal };
         adminCall("quiz_admin_save_question", { p: payload }).then(function () { ed = null; toast("Question saved"); load(); })
           .catch(function (e) { busy(t, false); showErr("fErr", e.message); });
       }
@@ -584,7 +640,7 @@
       render('<div class="phone stack">' + hl("This room was opened", "on another device.", "sm") + tick() + '<p class="lead">Host controls only work in the browser that opened the room. Open a new room to continue.</p><div><a class="btn" href="?host">Open a new room</a></div></div>');
       return;
     }
-    var S = null, acting = false, startLocal = 0, lastSig = "", lastDraw = "", seen = {}, lastAns = -1, lastTick = null, revealedAt = null, lobbyDrawn = false, animSig = "";
+    var S = null, acting = false, startLocal = 0, lastSig = "", lastDraw = "", seen = {}, lastAns = -1, lastTick = null, revealedAt = null, lobbyDrawn = false, animSig = "", lastResp = "", respSeen = {}, respQ = -1, breakAt = null;
     var joinUrl = BASE + "?join=" + code;
     var mr = document.getElementById("mastRight");
     mr.innerHTML = '<button class="sound" id="snd" type="button"></button>';
@@ -598,7 +654,7 @@
       if (!S || (acting && !btn)) return;
       if (btn) { btn.disabled = true; audio(); }
       acting = true;
-      rpc("quiz_host_action", { p_code: code, p_host_key: key, p_action: action, p_from: S.q_index })
+      rpc("quiz_host_action", { p_code: code, p_host_key: key, p_action: action, p_from: S.q_index, p_status: S.status })
         .catch(function (e) { toast(e.message); if (btn) btn.disabled = false; })
         .then(function () { acting = false; poll.now(); });
     }
@@ -613,7 +669,9 @@
       }).join("") + '</div>';
     }
     function draw() {
-      var q = { title: S.quiz_title || "Quiz" }, joinTag = "Join " + fmtCode(code), tp = titleParts(q.title);
+      var q = { title: S.quiz_title || "Quiz" }, joinTag = "Join " + fmtCode(code), tp = titleParts(q.title), ST = S.scored_total || S.total;
+      MAST_TITLE = S.quiz_title || null;
+      if (respQ !== S.q_index) { respQ = S.q_index; respSeen = {}; }
       var still = (S.status + "|" + S.q_index) === animSig; animSig = S.status + "|" + S.q_index; STILL = still;
       if (S.status !== "question") hideCountdown();
       if (S.status === "lobby") {
@@ -632,9 +690,20 @@
         var item = S.question || { q: "", opts: [], img: "", tag: "" };
         chrome({ host: S.host, section: "Question " + pad(S.q_index + 1) + " of " + pad(S.total), no: pad(S.q_index + 1), left: joinTag });
         var hold = Date.now() < startLocal;
-        lastAns = S.answered; lastTick = null;
+        lastAns = S.answered; lastTick = null; lastResp = JSON.stringify(S.responses || []);
+        if (isPoll(item)) {
+          render('<div class="stack" style="gap:22px">' + routeHtml(S.q_index, S.total) +
+            '<div class="stack poll-host' + (hold ? " hold" : " anim") + '" id="qbody" style="gap:18px"><div class="qhead"><span class="outline-n">' + pad(S.q_index + 1) + '</span><span class="micro" style="padding-bottom:8px">' + esc((item.section ? sectionParts(item.section).head + " · " : "") + (item.kind === "cloud" ? "Reflection · word cloud · not scored" : "Reflection · open answer · not scored")) + '</span></div>' +
+            '<h2 class="qtext poll-q">' + esc(item.q) + '</h2>' +
+            '<div class="strip"><div><span class="micro">Time left</span><span class="v" id="left">' + S.duration + '</span></div><div><span class="micro">Answered</span><span class="v" id="ans">' + S.answered + " / " + S.players.length + '</span></div></div>' +
+            '<div class="timeline" id="tl" style="width:100%"></div>' +
+            '<div class="resp" id="resp">' + respHtml(item.kind, S.responses, respSeen) + '</div>' +
+            '<div><button class="btn line" id="reveal">Close the poll</button></div></div></div>');
+          document.getElementById("reveal").addEventListener("click", function () { act("reveal", this); });
+          return;
+        }
         render('<div class="stack" style="gap:22px">' + routeHtml(S.q_index, S.total) +
-          '<div class="two' + (hold ? " hold" : " anim") + '" id="qbody"><div class="plate figure"><img alt="Question picture" src="' + esc(item.img) + '"></div>' +
+          '<div class="two' + (hold ? " hold" : " anim") + '" id="qbody">' + figHtml(item.img, item) +
           '<div class="stack"><div class="qhead"><span class="outline-n">' + pad(S.q_index + 1) + '</span><span class="micro" style="padding-bottom:8px">' + esc(item.tag) + ' · of ' + S.total + '</span></div>' +
           '<h2 class="qtext">' + esc(item.q) + '</h2>' + optsHtml(item, false) +
           '<div class="strip"><div><span class="micro">Time left</span><span class="v" id="left">' + S.duration + '</span></div><div><span class="micro">Answered</span><span class="v" id="ans">' + S.answered + " / " + S.players.length + '</span></div></div>' +
@@ -643,32 +712,56 @@
         document.getElementById("reveal").addEventListener("click", function () { act("reveal", this); });
       } else if (S.status === "reveal") {
         var it = S.question || { q: "", opts: [], img: "", tag: "" }, last = S.q_index + 1 >= S.total;
+        var nextLbl = last ? "Show the final ranking" : S.break_next ? "Show the module leaderboard" : "Next question";
         chrome({ host: S.host, section: "Answer " + pad(S.q_index + 1) + " of " + pad(S.total), no: pad(S.q_index + 1), left: joinTag });
+        if (isPoll(it)) {
+          render('<div class="stack" style="gap:22px">' + routeHtml(S.q_index, S.total) +
+            '<div class="stack" style="gap:18px"><div class="qhead"><span class="outline-n">' + pad(S.q_index + 1) + '</span><span class="micro" style="padding-bottom:8px">What the room said · ' + S.answered + ' answer' + (S.answered === 1 ? "" : "s") + '</span></div>' +
+            '<h2 class="qtext poll-q">' + esc(it.q) + '</h2><div class="resp done">' + respHtml(it.kind, S.responses, respSeen) + '</div>' +
+            (S.explanation ? '<p class="callout explain">' + esc(S.explanation) + '</p>' : "") +
+            '<div><button class="btn big" id="next">' + nextLbl + '</button></div></div></div>');
+          document.getElementById("next").addEventListener("click", function () { act("next", this); });
+          if (revealedAt !== S.q_index) { revealedAt = S.q_index; setTimeout(SFX.reveal, 150); }
+          return;
+        }
         render('<div class="stack" style="gap:22px">' + routeHtml(S.q_index, S.total) +
-          '<div class="two"><div class="stack"><div class="plate figure sm"><img alt="Answer picture" src="' + esc(S.reveal || it.img) + '"></div>' +
+          '<div class="two"><div class="stack">' + figHtml(S.reveal || it.img, it, true, "Answer picture") +
           '<p class="callout explain"><b>' + esc(S.answer) + '.</b> ' + esc(S.explanation) + '</p></div>' +
           '<div class="stack"><div class="qhead"><span class="outline-n">' + pad(S.q_index + 1) + '</span><span class="micro" style="padding-bottom:8px">The answer</span></div>' +
           '<h2 class="qtext">' + esc(it.q) + '</h2>' + optsHtml(it, true) +
           '<dl class="facts"><div><dt>Fastest correct</dt><dd>' + (S.fastest ? "<b>" + esc(S.fastest.name) + "</b> · " + secs(S.fastest.ms) : "Nobody this time. A tricky one!") + '</dd></div></dl>' +
           ((S.gomode || []).length ? '<p class="shead micro">Go mode</p><div class="gm-list">' + S.gomode.slice(0, 6).map(function (g, k) { return '<span style="animation-delay:' + (0.5 + k * 0.12) + 's"><i class="dia on"></i>' + esc(g.name) + ' <b>' + g.streak + ' in a row</b></span>'; }).join("") + '</div>' : "") +
-          '<p class="shead micro">Ranking so far</p>' + boardHtml(S.board || [], S.total, 3) +
-          '<div><button class="btn big" id="next">' + (last ? "Show the final ranking" : "Next question") + '</button></div></div></div></div>');
+          '<p class="shead micro">Ranking so far</p>' + boardHtml(S.board || [], ST, 3) +
+          '<div><button class="btn big" id="next">' + nextLbl + '</button></div></div></div></div>');
         document.getElementById("next").addEventListener("click", function () { act("next", this); });
         if (revealedAt !== S.q_index) { revealedAt = S.q_index; setTimeout(SFX.reveal, 150); if ((S.gomode || []).length) setTimeout(SFX.rise, 700); }
+      } else if (S.status === "standings") {
+        var cp = sectionParts(S.section), np = sectionParts(S.next_section), mb = S.module_board || [], star = mb[0] && mb[0].correct ? mb[0] : null;
+        var startLbl = S.next_section ? (np.num ? "Start " + np.head : "Start the next part") : "Continue";
+        chrome({ host: S.host, section: (cp.head || "Section") + " · complete", no: cp.num, left: joinTag });
+        render('<div class="stack" style="gap:24px"><div class="row spread" style="align-items:flex-end;gap:24px"><div>' + chapter(cp.num || "◆", (cp.head || "Section") + " complete") +
+          '<div style="margin-top:16px">' + hl(cp.num ? cp.head : cp.title, "complete.", "sm") + '</div><p class="lead" style="margin:10px 0 0">' + esc(cp.num ? cp.title : "") + '</p></div>' +
+          '<button class="btn big" id="next">' + esc(startLbl) + '</button></div>' + tick() +
+          '<div class="two"><div class="stack"><p class="kicker micro"><b></b>This module · top 5</p>' + (mb.length ? boardHtml(mb, S.section_total, 5) : waiting("No answers yet")) +
+          (star ? '<div class="mstar"><i class="dia on"></i><span><span class="micro">Module star</span><b>' + esc(star.name) + '</b><span class="muted">' + star.correct + ' of ' + S.section_total + ' correct · ' + secs(star.ms) + '</span></span></div>' : "") + '</div>' +
+          '<div class="stack"><p class="kicker micro"><b></b>Overall ranking · top 10</p>' + boardHtml(S.board || [], ST, 10) + '</div></div>' +
+          (S.next_section ? '<p class="callout">Up next: <b>' + esc(S.next_section) + '</b>. The room stays open during the module. Players keep their place, and newcomers can still join with code ' + fmtCode(code) + '.</p>' : "") + '</div>');
+        document.getElementById("next").addEventListener("click", function () { act("next", this); });
+        if (breakAt !== S.q_index) { breakAt = S.q_index; setTimeout(SFX.rise, 200); if (star) setTimeout(function () { burst({ count: 110, power: 10, y: .4 }); }, REDUCED ? 0 : 600); }
       } else {
         var b = S.board || [], w = b[0];
         chrome({ host: S.host, section: "Final ranking ◆", no: "", left: S.players.length + " players", closing: true });
         var plate = function (r, cls) {
           if (!r) return '<div></div>';
-          return '<div class="gplate ' + cls + '"><div class="rank">' + r.rank + '</div><div class="who">' + esc(r.name) + '</div><div class="sub">' + r.correct + "/" + S.total + " correct · " + secs(r.ms) + '</div>' +
+          return '<div class="gplate ' + cls + '"><div class="rank">' + r.rank + '</div><div class="who">' + esc(r.name) + '</div><div class="sub">' + r.correct + "/" + ST + " correct · " + secs(r.ms) + '</div>' +
             (r.rank === 1 ? '<div class="gift">' + GIFT + 'Wins the gift</div>' : "") + '</div>';
         };
         render('<div class="stack seq" style="gap:34px"><div class="end-hero"><div><p class="kicker micro"><b></b>' + esc(q.title) + ' · Complete</p>' +
           '<h1 class="end-hl" style="margin-top:18px"><span>' + (w ? "The winner is" : "No winner") + '</span><b>' + (w ? esc(w.name) + "." : "this time.") + '</b></h1>' + tick() +
-          '<p class="lead">' + S.players.length + ' players, ' + S.total + ' questions. Ranked by correct answers first, then by the fastest total time.</p></div>' +
+          '<p class="lead">' + S.players.length + ' players, ' + ST + ' scored questions. Ranked by correct answers first, then by the fastest total time.</p></div>' +
           (w ? '<div class="stamp"><div><span class="micro">Number one</span><strong>The gift</strong>' + GIFT + '</div></div>' : "") + '</div>' +
           '<div class="podium">' + plate(b[1], "p2") + plate(b[0], "p1") + plate(b[2], "p3") + '</div>' +
-          '<div class="rest stack" style="gap:30px">' + (b.length > 3 ? '<div class="stack" style="max-width:820px;width:100%;margin:0 auto"><p class="kicker micro"><b></b>Places 4 to ' + Math.min(10, b.length) + '</p>' + boardHtml(b.slice(3), S.total, 7) + '</div>' : "") +
+          '<div class="rest stack" style="gap:30px">' + (b.length > 3 ? '<div class="stack" style="max-width:820px;width:100%;margin:0 auto"><p class="kicker micro"><b></b>Places 4 to ' + Math.min(10, b.length) + '</p>' + boardHtml(b.slice(3), ST, 7) + '</div>' : "") +
           '<div class="row" style="justify-content:center"><a class="btn line" href="?host">Start a new session</a></div></div></div>');
         if (w) {
           setTimeout(SFX.drum, 200);
@@ -698,10 +791,13 @@
       return rpc("quiz_host_state", { p_code: code, p_host_key: key }).then(function (s) {
         var sig = s.status + "|" + s.q_index;
         if (s.status === "question" && s.elapsed_ms != null && sig !== lastSig) startLocal = Date.now() - s.elapsed_ms;
-        var full = sig + "|" + (s.status === "lobby" ? s.players.length : "") + (s.status === "finished" || s.status === "reveal" ? JSON.stringify(s.board) : "");
+        var full = sig + "|" + (s.status === "lobby" ? s.players.length : "") + (s.status === "finished" || s.status === "reveal" || s.status === "standings" ? JSON.stringify(s.board) + JSON.stringify(s.module_board || "") : "") + (s.status === "reveal" ? JSON.stringify(s.responses || "") : "");
         S = s; lastSig = sig;
         if (full !== lastDraw) { lastDraw = full; draw(); window.scrollTo(0, 0); }
-        else if (s.status === "question") { var a = document.getElementById("ans"); if (a) { a.textContent = s.answered + " / " + s.players.length; if (s.answered !== lastAns) { lastAns = s.answered; a.classList.remove("tickn"); void a.offsetWidth; a.classList.add("tickn"); SFX.blip(); } } }
+        else if (s.status === "question") {
+          var rs = document.getElementById("resp"), rj = JSON.stringify(s.responses || []);
+          if (rs && rj !== lastResp) { lastResp = rj; rs.innerHTML = respHtml(s.question && s.question.kind, s.responses, respSeen); }
+          var a = document.getElementById("ans"); if (a) { a.textContent = s.answered + " / " + s.players.length; if (s.answered !== lastAns) { lastAns = s.answered; a.classList.remove("tickn"); void a.offsetWidth; a.classList.add("tickn"); SFX.blip(); } } }
       }).catch(function (e) {
         if (/not found/i.test(e.message)) { poll.stop(); render('<div class="phone stack">' + hl("Room", "not found.", "sm") + '<p class="lead">' + esc(e.message) + '</p><div><a class="btn" href="?host">Open a new room</a></div></div>'); }
       });
@@ -712,9 +808,10 @@
   function player(code) {
     var me = store("satoquiz:player:" + code);
     if (!me) return joinForm(code);
-    var S = null, lastKey = "", startLocal = 0, picking = false, pending = null, cdFired = {}, animSig = "", flashed = {};
+    var S = null, lastKey = "", startLocal = 0, picking = false, pending = null, pendingText = null, sending = false, cdFired = {}, animSig = "", flashed = {};
     function draw() {
-      var q = { title: S.quiz_title || "Quiz" };
+      var q = { title: S.quiz_title || "Quiz" }, ST = S.scored_total || S.total;
+      MAST_TITLE = S.quiz_title || null;
       var still = (S.status + "|" + S.q_index) === animSig; animSig = S.status + "|" + S.q_index; STILL = still;
       if (S.status !== "question") hideCountdown();
       if (S.status === "lobby") {
@@ -725,18 +822,36 @@
       } else if (S.status === "question") {
         var item = S.question || { q: "", opts: [], img: "", tag: "" }, mine = S.my_choice != null ? S.my_choice : pending;
         chrome({ host: S.host, section: "Question " + pad(S.q_index + 1) + " of " + pad(S.total), no: pad(S.q_index + 1) });
-        var hold = Date.now() < startLocal;
-        render('<div class="phone stack' + (hold ? " hold" : (still ? "" : " anim")) + '" id="qbody" style="gap:14px"><div class="ptop"><span class="left"><span class="outline-n">' + pad(S.q_index + 1) + '</span><span class="micro" style="padding-bottom:6px">of ' + S.total + '</span></span><span class="secs" id="secs">' + S.duration + ' s</span></div>' +
+        var hold = Date.now() < startLocal, ptop = '<div class="ptop"><span class="left"><span class="outline-n">' + pad(S.q_index + 1) + '</span><span class="micro" style="padding-bottom:6px">of ' + S.total + '</span></span><span class="secs" id="secs">' + S.duration + ' s</span></div>';
+        if (isPoll(item)) {
+          var myT = S.my_text != null ? S.my_text : pendingText;
+          render('<div class="phone stack' + (hold ? " hold" : (still ? "" : " anim")) + '" id="qbody" style="gap:14px">' + ptop +
+            '<div class="timeline" id="tl" style="width:100%"></div><p class="micro" style="margin:0;color:var(--blue)">Reflection · not scored</p><h2 class="qtext" style="font-size:22px">' + esc(item.q) + '</h2>' +
+            (myT != null ? '<div class="callout sent"><span class="micro">You sent</span><p>' + esc(myT) + '</p></div>' + waiting("Look at the big screen")
+              : '<form id="pollForm" class="stack pollbox" novalidate>' + (item.kind === "cloud" ? '<input id="ptext" class="input" maxlength="30" autocomplete="off" autocapitalize="off" placeholder="One word">' : '<textarea id="ptext" class="input area" rows="4" maxlength="280" placeholder="Type your answer"></textarea>') +
+                '<button class="btn big block" type="submit">Send</button></form>') + '<div id="lock"></div></div>');
+          var pf = document.getElementById("pollForm");
+          if (pf) pf.addEventListener("submit", function (ev) { ev.preventDefault(); sendText(document.getElementById("ptext").value); });
+          return;
+        }
+        render('<div class="phone stack' + (hold ? " hold" : (still ? "" : " anim")) + '" id="qbody" style="gap:14px">' + ptop +
           '<div class="timeline" id="tl" style="width:100%"></div><h2 class="qtext" style="font-size:22px">' + esc(item.q) + '</h2>' +
-          '<div class="plate pimg" id="pimg" style="padding:10px"><img alt="Question picture, tap to enlarge" src="' + esc(item.img) + '"></div>' +
+          (item.img ? '<div class="plate pimg" id="pimg" style="padding:10px"><img alt="Question picture, tap to enlarge" src="' + esc(item.img) + '"></div>' : "") +
           '<div class="answers">' + item.opts.map(function (o, i) {
             return '<button class="answer" style="--i:' + i + '" data-i="' + i + '" aria-pressed="' + (mine === i) + '"' + (mine != null ? " disabled" : "") + '><span class="L outline-n">' + LETTERS[i] + '</span><span>' + (picOnly(item.opts) ? "Picture " + LETTERS[i] : esc(o)) + '</span><span class="dia"></span></button>';
           }).join("") + '</div><div id="lock">' + (mine != null ? waiting("Answer " + LETTERS[mine] + " is locked in") : "") + '</div></div>');
-        document.getElementById("pimg").addEventListener("click", function () { zoom(item.img); });
+        var pq = document.getElementById("pimg"); if (pq) pq.addEventListener("click", function () { zoom(item.img); });
         app.querySelectorAll(".answer").forEach(function (b) { b.addEventListener("click", function () { pick(+b.dataset.i); }); });
       } else if (S.status === "reveal") {
         var it = { reveal: S.reveal }, cls, head;
         chrome({ host: S.host, section: "Answer " + pad(S.q_index + 1) + " of " + pad(S.total), no: pad(S.q_index + 1) });
+        if (isPoll(S.question)) {
+          render('<div class="phone stack anim"><div class="callout">' + hl("Thanks for", "sharing.", "sm") + '</div>' +
+            '<dl class="facts">' + (S.my_text ? '<div><dt>You said</dt><dd>' + esc(S.my_text) + '</dd></div>' : '<div><dt>Your answer</dt><dd class="muted">None this time. Reflections are not scored.</dd></div>') +
+            (S.live_rank ? '<div><dt>Your rank now</dt><dd><span class="liverank">#' + S.live_rank + '</span> of ' + S.players + '</dd></div>' : "") + '</dl>' +
+            (S.explanation ? '<p style="margin:0">' + esc(S.explanation) + '</p>' : "") + waiting("Look at the big screen") + '</div>');
+          return;
+        }
         if (S.my_choice == null) { cls = "result-none"; head = hl("No answer", "this time.", "sm"); buzz(120); }
         else if (S.my_correct) { cls = "result-right"; head = hl("Correct.", secs(S.my_ms), "sm"); buzz([30, 40, 30]); setTimeout(function () { burst({ count: S.streak >= 3 ? 110 : 60, power: 8, y: .28 }); }, 200); }
         else { cls = "result-wrong"; head = hl("Not this", "time.", "sm"); buzz(220); }
@@ -754,6 +869,15 @@
           (it.reveal ? '<div class="plate pimg" id="pimg" style="padding:10px"><img alt="Answer picture" src="' + esc(it.reveal) + '"></div>' : "") +
           waiting("The next question is coming up") + '</div>');
         var pi = document.getElementById("pimg"); if (pi) pi.addEventListener("click", function () { zoom(it.reveal); });
+      } else if (S.status === "standings") {
+        var cp = sectionParts(S.section);
+        chrome({ host: S.host, section: (cp.head || "Section") + " · complete", no: cp.num });
+        render('<div class="phone stack">' + chapter(cp.num || "◆", (cp.head || "Section") + " complete") + '<div>' + hl(cp.num ? cp.head : cp.title, "done.", "sm") + '</div>' + tick() +
+          '<dl class="facts"><div><dt>This module</dt><dd><b style="color:var(--deep)">' + S.my_module + '</b> of ' + S.section_total + ' correct</dd></div>' +
+          '<div><dt>Overall rank</dt><dd><span class="liverank">#' + S.my_rank + '</span> of ' + S.players + '</dd></div><div><dt>Correct so far</dt><dd>' + S.my_score + '</dd></div></dl>' +
+          (S.next_section ? '<p class="lead">Up next: <b>' + esc(S.next_section) + '</b>. Keep this page open. The quiz continues after the module.</p>' : "") +
+          waiting("Waiting for " + S.host) + '</div>', still);
+        if (!still) buzz([30, 40, 30]);
       } else {
         var rank = S.my_rank, win = rank === 1, top = S.top || [];
         chrome({ host: S.host, section: "Final ranking ◆", no: "", closing: true });
@@ -762,9 +886,9 @@
           (win ? '<div class="stamp slam" style="width:118px;height:118px"><div><span class="micro">Number one</span><strong style="font-size:22px">The gift</strong>' + GIFT + '</div></div>' : "") + '</div>' +
           '<h1 class="end-hl">' + (win ? "You win" : rank <= 3 ? "Top three," : "Thanks for playing,") + '<b>' + (win ? "the gift." : rank <= 3 ? "well done." : esc(S.name.split(" ")[0]) + ".") + '</b></h1>' + tick() +
           '<p class="lead">' + (win ? "Show this screen to " + esc(S.host) + " to collect your gift." : "You finished #" + rank + " of " + S.players + ". The gift goes to number one.") + '</p>' +
-          '<dl class="facts" style="border-top-color:var(--gold)"><div style="border-bottom-color:var(--n-hair)"><dt style="color:var(--gold)">Correct</dt><dd style="color:var(--n-text)">' + S.my_score + " of " + S.total + '</dd></div>' +
+          '<dl class="facts" style="border-top-color:var(--gold)"><div style="border-bottom-color:var(--n-hair)"><dt style="color:var(--gold)">Correct</dt><dd style="color:var(--n-text)">' + S.my_score + " of " + ST + '</dd></div>' +
           '<div style="border-bottom-color:var(--n-hair)"><dt style="color:var(--gold)">Total time</dt><dd style="color:var(--n-text)">' + secs(S.my_total_ms) + '</dd></div></dl>' +
-          '<p class="kicker micro"><b></b>Top three</p>' + boardHtml(top, S.total, 3) + '</div>');
+          '<p class="kicker micro"><b></b>Top three</p>' + boardHtml(top, ST, 3) + '</div>');
         if (win) { buzz([60, 60, 60, 60, 300]); setTimeout(function () { burst({ colors: GOLD, count: 150, power: 11, y: .3 }); }, 400); setTimeout(function () { burst({ colors: GOLD, count: 80, power: 9, y: .5 }); }, 1300); }
         else if (rank <= 3) buzz([40, 40, 40]);
       }
@@ -779,6 +903,16 @@
         .catch(function (e) { pending = null; toast(e.message); lastKey = ""; poll.now(); })
         .then(function () { picking = false; });
     }
+    function sendText(v) {
+      v = String(v || "").trim();
+      if (!v || sending || !S || S.status !== "question" || S.my_text != null || Date.now() < startLocal) { if (!v) toast("Type your answer first."); return; }
+      sending = true; buzz(15);
+      var b = app.querySelector("#pollForm button"); if (b) b.disabled = true;
+      rpc("quiz_respond", { p_code: code, p_token: me.token, p_q: S.q_index, p_text: v })
+        .then(function () { S.my_text = v; pendingText = v; draw(); })
+        .catch(function (e) { toast(e.message); if (b) b.disabled = false; })
+        .then(function () { sending = false; });
+    }
     function tickTimer() {
       if (!S || S.status !== "question") return;
       var toGo = startLocal - Date.now();
@@ -790,16 +924,16 @@
       if (!tl) return;
       tl.style.width = Math.max(0, 100 * left / S.duration) + "%"; tl.classList.toggle("low", left <= 5);
       sc.textContent = Math.max(0, Math.ceil(left)) + " s"; sc.classList.toggle("low", left <= 5 && left > 0);
-      if (left <= 0 && S.my_choice == null && pending == null) {
-        app.querySelectorAll(".answer").forEach(function (b) { b.disabled = true; });
+      if (left <= 0 && S.my_choice == null && pending == null && S.my_text == null && pendingText == null) {
+        app.querySelectorAll(".answer, #pollForm button, #ptext").forEach(function (b) { b.disabled = true; });
         var lk = document.getElementById("lock"); if (lk && !lk.innerHTML) lk.innerHTML = waiting("Time is up");
       }
     }
     setInterval(tickTimer, 200);
     var poll = poller(function () {
       return rpc("quiz_player_state", { p_code: code, p_token: me.token }).then(function (s) {
-        var key = s.status + "|" + s.q_index + "|" + (s.status === "lobby" ? s.players : "") + "|" + (s.my_choice != null ? s.my_choice : "");
-        if (s.status === "question" && (!S || S.status !== "question" || S.q_index !== s.q_index)) { startLocal = Date.now() - (s.elapsed_ms || 0); pending = null; }
+        var key = s.status + "|" + s.q_index + "|" + (s.status === "lobby" ? s.players : "") + "|" + (s.my_choice != null ? s.my_choice : "") + "|" + (s.my_text != null ? "t" : "");
+        if (s.status === "question" && (!S || S.status !== "question" || S.q_index !== s.q_index)) { startLocal = Date.now() - (s.elapsed_ms || 0); pending = null; pendingText = null; }
         S = s;
         if (key !== lastKey && !(s.status === "question" && pending != null && s.my_choice == null)) { lastKey = key; draw(); window.scrollTo(0, 0); }
       }).catch(function (e) {
@@ -813,6 +947,7 @@
     render('<div class="phone stack" id="jcard">' + waiting("Finding the quiz") + '</div>');
     rpc("quiz_peek", { p_code: code }).then(function (p) {
       var q = { title: p.title || "Quiz", blurb: p.blurb || "", total: p.total || 0 }, card = document.getElementById("jcard");
+      MAST_TITLE = p.title || null;
       chrome({ host: p.host, section: "Join", no: "01" });
       if (p.status === "finished") { card.innerHTML = hl("This quiz", "has finished.", "sm") + tick() + '<p class="lead">Ask ' + esc(p.host) + ' for the code of the next one.</p><div><a class="btn line" href="./">Enter another code</a></div>'; return; }
       card.innerHTML = chapter("01", "Room " + fmtCode(code)) + '<div>' + hl("Welcome to", q.title + ".", "sm") + '</div>' + tick() +
