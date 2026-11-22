@@ -419,11 +419,14 @@
   /* ---------- quiz admin: quizzes, questions, time limits, pictures, rooms, PIN ---------- */
   function admin() {
     var D = null, tab = params.get("tab") || "quizzes", selId = params.get("quiz") || null, ed = null, confirmKey = null, first = true;
+    var resCode = (params.get("room") || "").replace(/\D/g, "") || null, R = null;
+    if (resCode) tab = "rooms";
     function load(after) {
       if (!adminToken()) return adminLogin("to quiz admin", function () { load(after); });
       adminCall("quiz_admin_data").then(function (d) {
         D = d;
         if (selId !== "__new" && (!selId || !d.quizzes.some(function (z) { return z.id === selId; }))) selId = d.quizzes[0] ? d.quizzes[0].id : "__new";
+        if (resCode && (!R || R.code !== resCode)) loadResults();
         if (after) after();
         draw();
       }).catch(function (e) { if (!adminToken()) adminLogin("to quiz admin", function () { load(after); }, e.message); else toast(e.message); });
@@ -527,7 +530,8 @@
     /* ----- rooms tab ----- */
     function roomsHtml() {
       if (!D.rooms.length) return '<p class="callout">No rooms yet. Rooms appear here when a host opens a quiz.</p>';
-      return '<div class="row spread"><p class="shead micro" style="flex:1">Rooms · newest first</p><button class="btn line sm" data-act="refresh">Refresh</button></div>' +
+      if (resCode) return resultsHtml();
+      return '<div class="row spread"><p class="shead micro" style="flex:1">Rooms · newest first · press Results to see the full ranking</p><button class="btn line sm" data-act="refresh">Refresh</button></div>' +
         '<div class="rtable"><div class="rhead"><span>Code</span><span>Quiz</span><span>Host</span><span>Status</span><span>Progress</span><span>Players</span><span>Opened</span><span></span></div>' +
         D.rooms.map(function (r) {
           var conf = confirmKey === "room:" + r.code;
@@ -536,9 +540,52 @@
             '<span><span class="st st-' + r.status + '">' + st + '</span></span><span>' + (r.q_index < 0 ? "Not started" : Math.min(r.q_index + 1, r.total) + " of " + r.total) + '</span>' +
             '<span>' + r.players + '</span><span class="muted">' + ago(r.created_at) + '</span>' +
             (conf ? '<span class="acts confirm">Delete? <button class="btn danger sm" data-act="room-del-yes" data-code="' + r.code + '">Delete</button><button class="btn line sm" data-act="cancel-confirm">Keep</button></span>'
-              : '<span class="acts">' + (r.status !== "finished" ? '<button class="btn line sm" data-act="room-end" data-code="' + r.code + '">End</button>' : "") + '<button class="btn line sm danger-line" data-act="room-del" data-code="' + r.code + '">Delete</button></span>') + '</div>';
+              : '<span class="acts">' + (r.q_index >= 0 ? '<button class="btn sm" data-act="room-res" data-code="' + r.code + '">Results</button>' : "") + (r.status !== "finished" ? '<button class="btn line sm" data-act="room-end" data-code="' + r.code + '">End</button>' : "") + '<button class="btn line sm danger-line" data-act="room-del" data-code="' + r.code + '">Delete</button></span>') + '</div>';
         }).join("") + '</div>';
     }
+
+    /* ----- room results: full ranking, modules, questions, reflections ----- */
+    function resultsHtml() {
+      if (!R || R.code !== resCode) return '<div class="row"><button class="btn line sm" data-act="res-back">All rooms</button></div>' + waiting("Loading the results");
+      var ST = R.scored_total || R.total, st = { lobby: "Waiting", question: "Live", reveal: "Live", standings: "Module break", finished: "Finished" }[R.status] || R.status;
+      var d = new Date(R.created_at), when = d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" }) + " · " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+      var secs2 = R.sections || [], rk = R.ranking || [], w = rk[0];
+      var head = '<div class="row spread" style="gap:14px"><div class="row" style="gap:10px"><button class="btn line sm" data-act="res-back">All rooms</button><button class="btn line sm" data-act="res-reload">Refresh</button></div>' +
+        '<div class="row" style="gap:10px"><button class="btn sm" data-act="res-csv">Download ranking (CSV)</button>' + (R.questions.some(function (q) { return q.responses && q.responses.length; }) ? '<button class="btn line sm" data-act="res-csv-ref">Download reflections (CSV)</button>' : "") + '</div></div>';
+      var hero = '<div class="res-hero"><div><p class="kicker micro"><b></b>Room ' + fmtCode(R.code) + ' · ' + esc(st) + '</p>' + hl(R.quiz_title || "Quiz", "results.", "sm") +
+        '<p class="muted" style="margin:6px 0 0">' + esc(when) + ' · hosted by ' + esc(R.host) + ' · ' + rk.length + ' player' + (rk.length === 1 ? "" : "s") + ' · ' + ST + ' scored questions' + (R.status !== "finished" ? ' · reached question ' + Math.min(R.q_index + 1, R.total) + ' of ' + R.total : "") + '</p></div>' +
+        (w && w.correct ? '<div class="mstar"><i class="dia on"></i><span><span class="micro">Number one</span><b>' + esc(w.name) + '</b><span class="muted">' + w.correct + ' of ' + ST + ' correct · ' + secs(w.ms) + '</span></span></div>' : "") + '</div>';
+      var cols = secs2.map(function (s, k) { var p = sectionParts(s.name); return '<span class="mc" title="' + esc(s.name) + '">' + esc(p.num ? "M" + p.n : "S" + (k + 1)) + '</span>'; }).join("");
+      var gt = 'grid-template-columns: 50px minmax(160px, 1fr) 90px 90px' + (secs2.length ? " repeat(" + secs2.length + ", 46px)" : "") + ';';
+      var table = '<div class="res-table"><div class="res-row res-head" style="' + gt + '"><span>Rank</span><span>Player</span><span>Correct</span><span>Time</span>' + cols + '</div>' +
+        rk.map(function (r) {
+          return '<div class="res-row' + (r.rank <= 3 ? " top" : "") + '" style="' + gt + '"><span class="pos outline-n">' + r.rank + '</span><span class="nm">' + esc(r.name) + (r.answered < ST && R.status === "finished" ? '<small>' + r.answered + ' answered</small>' : "") + '</span><span class="sc">' + r.correct + '/' + ST + '</span><span class="tm">' + secs(r.ms) + '</span>' +
+            (r.by_section || []).map(function (n, k) { return '<span class="mc">' + n + '<small>/' + secs2[k].total + '</small></span>'; }).join("") + '</div>';
+        }).join("") + '</div>' +
+        (secs2.length ? '<p class="muted" style="margin:8px 0 0;font-size:13px">' + secs2.map(function (s, k) { var p = sectionParts(s.name); return (p.num ? "M" + p.n : "S" + (k + 1)) + " = " + esc(p.title); }).join(" · ") + '</p>' : "");
+      var qs = R.questions.map(function (q) {
+        var poll = q.kind !== "choice", pct = q.answers ? Math.round(100 * q.right / q.answers) : 0;
+        var body = !q.asked ? '<span class="muted">Not reached</span>' : poll
+          ? (q.responses && q.responses.length ? '<div class="res-resp">' + q.responses.map(function (x) { return '<span><b>' + esc(x.name) + '</b> ' + esc(x.t) + '</span>'; }).join("") + '</div>' : '<span class="muted">No answers</span>')
+          : '<span class="res-bar"><i style="width:' + pct + '%"></i></span><span class="muted">' + q.right + ' of ' + q.answers + ' right (' + pct + '%)' + (q.fastest ? ' · fastest ' + esc(q.fastest.name) + ' ' + secs(q.fastest.ms) : "") + '</span>';
+        return '<div class="res-q' + (poll ? " poll" : "") + '"><span class="n outline-n">' + pad(q.n) + '</span><div class="stack" style="gap:6px"><b>' + esc(q.q) + '</b>' +
+          '<span class="micro" style="color:var(--blue)">' + esc(poll ? (q.kind === "cloud" ? "Word cloud · reflection" : "Open text · reflection") : "Answer " + q.answer) + '</span>' + body + '</div></div>';
+      });
+      var grouped = "", lastSec = null;
+      R.questions.forEach(function (q, k) { if (q.section && q.section !== lastSec) { grouped += '<div class="qsec"><i class="dia on"></i>' + esc(q.section) + '</div>'; lastSec = q.section; } grouped += qs[k]; });
+      return '<div class="stack" style="gap:22px">' + head + hero +
+        '<div class="stack" style="gap:10px"><p class="shead micro">Full ranking · most correct first, then fastest total time on correct answers</p>' + (rk.length ? table : '<p class="callout">Nobody joined this room.</p>') + '</div>' +
+        '<div class="stack" style="gap:10px"><p class="shead micro">Question by question</p>' + grouped + '</div></div>';
+    }
+    function loadResults() {
+      adminCall("quiz_admin_results", { p_code: resCode }).then(function (r) { R = r; draw(); }).catch(function (e) { toast(e.message); resCode = null; draw(); });
+    }
+    function csvDownload(name, rows) {
+      var csv = "﻿" + rows.map(function (r) { return r.map(function (v) { v = String(v == null ? "" : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(","); }).join("\r\n");
+      var url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })), l = document.createElement("a");
+      l.href = url; l.download = name; document.body.appendChild(l); l.click(); l.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+    }
+    function csvName(kind) { return (R.quiz_title || "quiz").replace(/[^\w]+/g, "-").replace(/^-|-$/g, "") + "_" + R.code + "_" + kind + ".csv"; }
 
     /* ----- settings tab ----- */
     function settingsHtml() {
@@ -567,7 +614,7 @@
       if (!D) return;
       var t = ev.target.closest("[data-act],[data-sel],[data-tab]");
       if (!t || !app.contains(t)) return;
-      if (t.dataset.tab) { collect(); tab = t.dataset.tab; confirmKey = null; draw(); if (tab === "rooms") load(); return; }
+      if (t.dataset.tab) { collect(); tab = t.dataset.tab; confirmKey = null; resCode = null; draw(); if (tab === "rooms") load(); return; }
       if (t.dataset.sel) { selId = t.dataset.sel; ed = null; confirmKey = null; draw(); return; }
       var act = t.dataset.act, z = cur();
       ev.preventDefault();
@@ -606,6 +653,19 @@
         adminCall("quiz_admin_reorder", { p_quiz: selId, p_ids: ids }).then(function () { load(); }).catch(function (e) { toast(e.message); });
       }
       else if (act === "refresh") { load(); }
+      else if (act === "room-res") { resCode = t.dataset.code; R = null; draw(); window.scrollTo(0, 0); loadResults(); }
+      else if (act === "res-back") { resCode = null; R = null; draw(); load(); }
+      else if (act === "res-reload") { loadResults(); }
+      else if (act === "res-csv") {
+        var ST = R.scored_total || R.total, sh = (R.sections || []).map(function (s) { return s.name + " (/" + s.total + ")"; });
+        csvDownload(csvName("ranking"), [["Rank", "Name", "Correct", "Out of", "Total time (s)", "Answered"].concat(sh)].concat((R.ranking || []).map(function (r) {
+          return [r.rank, r.name, r.correct, ST, (r.ms / 1000).toFixed(1), r.answered].concat(r.by_section || []); })));
+      }
+      else if (act === "res-csv-ref") {
+        var rows = [["Question no.", "Module", "Question", "Name", "Answer"]];
+        R.questions.forEach(function (q) { (q.responses || []).forEach(function (x) { rows.push([q.n, q.section || "", q.q, x.name, x.t]); }); });
+        csvDownload(csvName("reflections"), rows);
+      }
       else if (act === "room-end") { adminCall("quiz_admin_room", { p_code: t.dataset.code, p_action: "end" }).then(function () { toast("Room ended"); load(); }).catch(function (e) { toast(e.message); }); }
       else if (act === "room-del") { confirmKey = "room:" + t.dataset.code; draw(); }
       else if (act === "room-del-yes") { adminCall("quiz_admin_room", { p_code: t.dataset.code, p_action: "delete" }).then(function () { confirmKey = null; toast("Room deleted"); load(); }).catch(function (e) { toast(e.message); }); }
@@ -762,7 +822,7 @@
           (w ? '<div class="stamp"><div><span class="micro">Number one</span><strong>The gift</strong>' + GIFT + '</div></div>' : "") + '</div>' +
           '<div class="podium">' + plate(b[1], "p2") + plate(b[0], "p1") + plate(b[2], "p3") + '</div>' +
           '<div class="rest stack" style="gap:30px">' + (b.length > 3 ? '<div class="stack" style="max-width:820px;width:100%;margin:0 auto"><p class="kicker micro"><b></b>Places 4 to ' + Math.min(10, b.length) + '</p>' + boardHtml(b.slice(3), ST, 7) + '</div>' : "") +
-          '<div class="row" style="justify-content:center"><a class="btn line" href="?host">Start a new session</a></div></div></div>');
+          '<div class="row" style="justify-content:center;gap:10px"><a class="btn line" href="?admin&tab=rooms&room=' + code + '">Full results and download</a><a class="btn line" href="?host">Start a new session</a></div></div></div>');
         if (w) {
           setTimeout(SFX.drum, 200);
           setTimeout(function () { SFX.fanfare(); burst({ colors: GOLD, count: 170, power: 13, y: .62, lift: 7 }); }, REDUCED ? 0 : 2300);

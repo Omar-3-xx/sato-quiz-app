@@ -20,7 +20,7 @@ Keep the same browser on the same laptop for the whole session: host controls on
 ## Quiz admin
 Open the site with `?admin` (or the **Quiz admin** link) and enter the 6-digit admin PIN.
 - **Quizzes:** add, rename, reorder, hide or delete quizzes; add, edit, reorder or delete questions. Each question has 2 to 4 options, the correct answer, a time limit (5 to 120 seconds), a label, an explanation shown after the answer, and an optional question picture and answer picture (upload or paste a link).
-- **Rooms:** see every room with its status, players and progress; end or delete a room.
+- **Rooms:** see every room with its status, players and progress; end or delete a room. **Results** opens any past room: the full ranking with module scores, how each question went, every reflection answer, and CSV downloads.
 - **Settings:** change the admin PIN.
 
 **Question types:** multiple choice (scored), word cloud and open text (reflection polls, not scored; the big screen shows answers live).
