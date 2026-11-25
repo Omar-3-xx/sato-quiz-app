@@ -495,7 +495,7 @@
       var n = x.opts.length, kind = x.kind || "choice", poll = kind !== "choice";
       var opts = x.opts.map(function (o, i) {
         return '<div class="optrow"><label class="radio"><input type="radio" name="fCorrect" value="' + i + '"' + (x.correct === i ? " checked" : "") + '><span class="L outline-n">' + LETTERS[i] + '</span></label>' +
-          '<input class="input fopt" data-i="' + i + '" maxlength="120" value="' + esc(o) + '" placeholder="Option ' + LETTERS[i] + '">' +
+          '<input class="input fopt" data-i="' + i + '" maxlength="300" value="' + esc(o) + '" placeholder="Option ' + LETTERS[i] + '">' +
           (n > 2 ? '<button class="ibtn" data-act="rm-opt" data-i="' + i + '" aria-label="Remove option ' + LETTERS[i] + '">&#215;</button>' : '<span></span>') + '</div>';
       }).join("");
       function pic(key, label, url, opt) {
