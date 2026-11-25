@@ -26,6 +26,7 @@
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
   function store(k, v) { try { if (v === undefined) return JSON.parse(localStorage.getItem(k)); localStorage.setItem(k, JSON.stringify(v)); } catch (e) { return null; } }
   function secs(ms) { return (Math.max(0, ms) / 1000).toFixed(1) + " s"; }
+  function mins(s) { s = Math.max(0, Math.round(s || 0)); var m = Math.floor(s / 60), r = s % 60; return m ? m + " min" + (r ? " " + r + " s" : "") : r + " s"; }
   function picOnly(opts) { return opts.every(function (x, j) { return x === LETTERS[j]; }); }
   function pad(n) { return String(n).padStart(2, "0"); }
   function fmtCode(c) { return String(c).slice(0, 3) + " " + String(c).slice(3); }
@@ -420,7 +421,7 @@
   function admin() {
     var D = null, tab = params.get("tab") || "quizzes", selId = params.get("quiz") || null, ed = null, confirmKey = null, first = true;
     var resCode = (params.get("room") || "").replace(/\D/g, "") || null, R = null;
-    var X = null, xSel = tab === "tests" ? selId : null, xEdit = false, xTimer = null;
+    var X = null, xSel = tab === "tests" ? selId : null, xEdit = false, xTimer = null, xRank = false, xAnim = false;
     if (resCode) tab = "rooms";
     function load(after) {
       if (!adminToken()) return adminLogin("to quiz admin", function () { load(after); });
@@ -602,6 +603,25 @@
         .catch(function (e) { toast(e.message); })
         .then(function () { clearTimeout(xTimer); if (tab === "tests" && xSel) xTimer = setTimeout(loadExam, 6000); });
     }
+    /* the final ranking of a self-paced test: most right first, then the quicker finish. Big-screen ready. */
+    function rankingPage() {
+      var sent = X.people.filter(function (p) { return p.place; }), w = sent[0], waitingN = X.people.length - sent.length;
+      chrome({ section: "Final ranking ◆", no: "", left: sent.length + " of " + X.people.length + " sent", closing: true });
+      var plate = function (p, cls) {
+        if (!p) return '<div></div>';
+        return '<div class="gplate ' + cls + '"><div class="rank">' + p.place + '</div><div class="who">' + esc(p.name) + '</div><div class="sub">' + p.score + "/" + X.total + " right · " + mins(p.secs) + '</div></div>';
+      };
+      var rest = sent.slice(3).map(function (p, i) {
+        return '<div class="brow' + '" style="--i:' + i + '"><span class="pos outline-n">' + p.place + '</span><span class="nm">' + esc(p.name) + '</span><span class="sc">' + p.score + "/" + X.total + '</span><span class="tm">' + mins(p.secs) + '</span></div>';
+      }).join("");
+      var anim = xAnim; xAnim = false;
+      render('<div class="stack' + (anim ? " seq" : "") + '" style="gap:34px"><div class="end-hero"><div><p class="kicker micro"><b></b>' + esc(X.title) + ' · ' + (waitingN ? sent.length + " of " + X.people.length + " sent" : "Everyone sent") + '</p>' +
+        '<h1 class="end-hl" style="margin-top:18px"><span>' + (w ? "Number one is" : "No tests sent") + '</span><b>' + (w ? esc(w.name) + "." : "yet.") + '</b></h1>' + tick() +
+        '<p class="lead">Ranked by right answers first, then by the quicker finish, from opening the test to sending it.' + (waitingN ? " " + waitingN + " still to send · the ranking updates by itself." : "") + '</p></div></div>' +
+        (w ? '<div class="podium">' + plate(sent[1], "p2") + plate(sent[0], "p1") + plate(sent[2], "p3") + '</div>' : "") +
+        '<div class="rest stack" style="gap:30px">' + (rest ? '<div class="stack" style="max-width:820px;width:100%;margin:0 auto"><p class="kicker micro"><b></b>Places 4 to ' + sent.length + '</p><div class="board' + (anim ? " stag" : "") + '">' + rest + '</div></div>' : "") +
+        '<div class="row" style="justify-content:center;gap:10px"><button class="btn line" data-act="x-rank-no">Back to the test</button></div></div></div>', !first);
+    }
     function testsHtml() {
       var list = exams();
       if (!list.length) return '<p class="callout">No self-paced tests yet. In Quizzes, choose a quiz and set its type to Self-paced test.</p>';
@@ -617,14 +637,14 @@
         '<p class="kicker micro"><b></b>' + (X.active ? "Open for sign-in" : "Closed · open it in Quizzes") + '</p>' + hl(X.title, "the test.", "sm") +
         '<p class="muted" style="margin:0;word-break:break-all">' + esc(url) + '</p>' +
         '<dl class="facts"><div><dt>On the list</dt><dd>' + X.people.length + '</dd></div><div><dt>Sent</dt><dd>' + sent.length + (avg != null ? ' · average ' + avg + '%' : "") + '</dd></div><div><dt>Answering now</dt><dd>' + going.length + '</dd></div><div><dt>Not started</dt><dd>' + (X.people.length - sent.length - going.length) + '</dd></div></dl>' +
-        '<div class="row" style="gap:10px"><button class="btn" data-act="x-qr">Show the QR full screen</button><button class="btn line" data-act="x-csv">Download results (CSV)</button><button class="btn line" data-act="x-refresh">Refresh</button></div></div></div>';
+        '<div class="row" style="gap:10px"><button class="btn" data-act="x-qr">Show the QR full screen</button><button class="btn" data-act="x-rank">Show the final ranking</button><button class="btn line" data-act="x-csv">Download results (CSV)</button><button class="btn line" data-act="x-refresh">Refresh</button></div></div></div>';
       var people = '<div class="xtable"><div class="xrow xhead"><span>Name</span><span>HR ID</span><span>Status</span><span>Score</span><span>Sent</span><span></span></div>' + X.people.map(function (p) {
         var st = p.submitted_at ? '<span class="st st-finished">Sent</span>' : p.started_at ? '<span class="st st-question">' + p.answered + ' of ' + X.total + '</span>' + (p.claimable ? ' <span class="muted">waiting for a new phone</span>' : "") : '<span class="st">Not started</span>';
         var c = confirmKey === "x-move:" + p.hr_id ? '<span class="acts confirm">Move to the next phone that signs in? <button class="btn sm" data-act="x-move-yes" data-hr="' + esc(p.hr_id) + '">Move</button><button class="btn line sm" data-act="cancel-confirm">Keep</button></span>'
           : confirmKey === "x-del:" + p.hr_id ? '<span class="acts confirm">Clear their test? Their answers are deleted. <button class="btn danger sm" data-act="x-del-yes" data-hr="' + esc(p.hr_id) + '">Clear</button><button class="btn line sm" data-act="cancel-confirm">Keep</button></span>'
           : '<span class="acts">' + (p.started_at && !p.submitted_at && !p.claimable ? '<button class="btn line sm" data-act="x-move" data-hr="' + esc(p.hr_id) + '">New phone</button>' : "") + (p.started_at ? '<button class="btn line sm danger-line" data-act="x-del" data-hr="' + esc(p.hr_id) + '">Clear</button>' : "") + '</span>';
         return '<div class="xrow' + (p.submitted_at ? " sent" : "") + '"><span class="nm"><b>' + esc(p.name) + '</b>' + (p.note ? '<small>' + esc(p.note) + '</small>' : "") + '</span><span class="hr">' + esc(p.hr_id) + '</span><span>' + st + '</span>' +
-          '<span class="sc">' + (p.submitted_at ? '<b>' + p.score + '</b>/' + X.total + ' · ' + Math.round(100 * p.score / X.total) + '%' : "") + '</span><span class="muted">' + cairo(p.submitted_at) + '</span>' + c + '</div>';
+          '<span class="sc">' + (p.submitted_at ? (p.place ? '#' + p.place + ' · ' : "") + '<b>' + p.score + '</b>/' + X.total + ' · ' + Math.round(100 * p.score / X.total) + '%' + (p.secs != null ? '<small>' + mins(p.secs) + '</small>' : "") : "") + '</span><span class="muted">' + cairo(p.submitted_at) + '</span>' + c + '</div>';
       }).join("") + '</div>';
       var roster = xEdit
         ? '<div class="plate stack" style="padding:20px"><p class="shead micro">Who can sign in · one person per line: HR ID, name, note (optional)</p>' +
@@ -653,6 +673,7 @@
     }
 
     function draw() {
+      if (tab === "tests" && xRank && X && X.id === xSel) return rankingPage();
       chrome({ section: "Quiz admin", no: "", left: "Admin" });
       var tabsHtml = '<div class="atabs" role="tablist">' + [["quizzes", "Quizzes"], ["rooms", "Rooms"], ["tests", "Tests"], ["settings", "Settings"]].map(function (t) {
         return '<button role="tab" class="atab' + (tab === t[0] ? " on" : "") + '" aria-selected="' + (tab === t[0]) + '" data-tab="' + t[0] + '">' + t[1] + '</button>';
@@ -669,7 +690,7 @@
       if (!D) return;
       var t = ev.target.closest("[data-act],[data-sel],[data-tab]");
       if (!t || !app.contains(t)) return;
-      if (t.dataset.tab) { collect(); tab = t.dataset.tab; confirmKey = null; resCode = null; xEdit = false; draw(); if (tab === "rooms") load(); if (tab === "tests") loadExam(); return; }
+      if (t.dataset.tab) { collect(); tab = t.dataset.tab; confirmKey = null; resCode = null; xEdit = false; xRank = false; draw(); if (tab === "rooms") load(); if (tab === "tests") loadExam(); return; }
       if (t.dataset.sel) { selId = t.dataset.sel; ed = null; confirmKey = null; draw(); return; }
       var act = t.dataset.act, z = cur();
       ev.preventDefault();
@@ -688,6 +709,8 @@
       else if (act === "to-tests") { tab = "tests"; xSel = selId; X = null; draw(); loadExam(); }
       else if (act === "x-sel") { xSel = t.dataset.id; X = null; xEdit = false; draw(); loadExam(); }
       else if (act === "x-refresh") { loadExam(); }
+      else if (act === "x-rank") { xRank = true; xAnim = true; xEdit = false; confirmKey = null; draw(); window.scrollTo(0, 0); }
+      else if (act === "x-rank-no") { xRank = false; draw(); window.scrollTo(0, 0); }
       else if (act === "x-qr") { var zq = document.createElement("div"); zq.className = "zoom zqr"; zq.innerHTML = '<div class="zqr-in"><div class="qr">' + qrSvg(examUrl(xSel)) + '</div><p>' + esc(X ? X.title : "") + '</p><span>Scan, then sign in with your HR ID</span></div>'; zq.addEventListener("click", function () { zq.remove(); }); document.body.appendChild(zq); }
       else if (act === "x-edit") { xEdit = true; draw(); }
       else if (act === "x-edit-no") { xEdit = false; draw(); }
@@ -703,8 +726,8 @@
           .catch(function (e) { confirmKey = null; toast(e.message); draw(); });
       }
       else if (act === "x-csv") {
-        csvDownload((X.title || "test").replace(/[^\w]+/g, "-").replace(/^-|-$/g, "") + "_results.csv", [["Name", "HR ID", "Note", "Status", "Score", "Out of", "Answered", "Started (Cairo)", "Sent (Cairo)"]].concat(X.people.map(function (p) {
-          return [p.name, p.hr_id, p.note, p.submitted_at ? "Sent" : p.started_at ? "Answering" : "Not started", p.submitted_at ? p.score : "", X.total, p.answered, cairo(p.started_at), cairo(p.submitted_at)]; })));
+        csvDownload((X.title || "test").replace(/[^\w]+/g, "-").replace(/^-|-$/g, "") + "_results.csv", [["Place", "Name", "HR ID", "Note", "Status", "Score", "Out of", "Time taken (min)", "Answered", "Started (Cairo)", "Sent (Cairo)"]].concat(X.people.map(function (p) {
+          return [p.place || "", p.name, p.hr_id, p.note, p.submitted_at ? "Sent" : p.started_at ? "Answering" : "Not started", p.submitted_at ? p.score : "", X.total, p.secs != null ? (p.secs / 60).toFixed(1) : "", p.answered, cairo(p.started_at), cairo(p.submitted_at)]; })));
       }
       else if (act === "del-quiz") { confirmKey = "quiz:" + selId; draw(); }
       else if (act === "del-quiz-yes") { adminCall("quiz_admin_delete_quiz", { p_id: selId }).then(function () { toast("Quiz deleted"); selId = null; confirmKey = null; load(); }).catch(function (e) { toast(e.message); }); }
@@ -1113,7 +1136,7 @@
   var EXAM_KEY = function (id) { return "satoquiz:exam:" + id; };
   function examUrl(id) { return BASE + "?exam=" + encodeURIComponent(id); }
   function exam(id) {
-    var mine = store(EXAM_KEY(id)), S = null, idx = 0, confirmSend = false, saving = {};
+    var mine = store(EXAM_KEY(id)), S = null, idx = 0, confirmSend = false, saving = {}, pollT = null;
     function signIn(err) {
       chrome({ section: "Sign in", no: "01" });
       render('<div class="phone stack" id="xcard">' + waiting("Finding the test") + '</div>');
@@ -1165,14 +1188,27 @@
         send + '<p class="shead micro" style="margin:6px 0 0">All questions · tap a number to go back to it</p>' + grid + '</div>', true);
       var pq = document.getElementById("pimg"); if (pq) pq.addEventListener("click", function () { zoom(q.img); });
     }
+    /* the ranking: the phone shows its place only at the end (everyone on the list sent, or HR closed the test) */
+    function refresh() {
+      clearTimeout(pollT);
+      rpc("quiz_exam_state", { p_token: mine.token }).then(function (s) { S = s; done(); })
+        .catch(function () { pollT = setTimeout(refresh, 10000); });
+    }
     function done() {
-      var pct = Math.round(100 * S.score / S.total);
-      chrome({ section: "Sent ◆", no: "", closing: true, left: S.name });
-      render('<div class="phone stack" style="gap:22px"><p class="kicker micro"><b></b>' + esc(S.title) + ' · Sent</p>' +
-        '<h1 class="end-hl">Well done,<b>' + esc(S.name.split(" ")[0]) + '.</b></h1>' + tick() +
-        '<dl class="facts" style="border-top-color:var(--gold)"><div style="border-bottom-color:var(--n-hair)"><dt style="color:var(--gold)">Your score</dt><dd style="color:var(--n-text)">' + S.score + ' of ' + S.total + ' · ' + pct + '%</dd></div>' +
-        '<div style="border-bottom-color:var(--n-hair)"><dt style="color:var(--gold)">HR ID</dt><dd style="color:var(--n-text)">' + esc(S.hr_id) + '</dd></div></dl>' +
-        '<p class="lead">Your answers are with HR. We go through the right answers together in the session.</p></div>');
+      clearTimeout(pollT);
+      var pct = Math.round(100 * S.score / S.total), win = S.place === 1;
+      var row = function (dt, dd) { return '<div style="border-bottom-color:var(--n-hair)"><dt style="color:var(--gold)">' + dt + '</dt><dd style="color:var(--n-text)">' + dd + '</dd></div>'; };
+      chrome({ section: S.place ? "Final ranking ◆" : "Sent ◆", no: "", closing: true, left: S.name });
+      render('<div class="phone stack" style="gap:22px"><p class="kicker micro"><b></b>' + esc(S.title) + ' · ' + (S.place ? "Final ranking" : "Sent") + '</p>' +
+        (S.place ? '<div class="prank' + (win ? " win" : "") + '">#' + S.place + '</div>' : "") +
+        '<h1 class="end-hl">' + (win ? "Number one," : S.place && S.place <= 3 ? "Top three," : "Well done,") + '<b>' + esc(S.name.split(" ")[0]) + '.</b></h1>' + tick() +
+        '<dl class="facts" style="border-top-color:var(--gold)">' +
+        row("Your place", S.place ? '#' + S.place + ' of ' + S.ranked : '<span style="color:var(--n-muted)">Shows here when everyone has sent</span>') +
+        row("Your score", S.score + ' of ' + S.total + ' · ' + pct + '%') +
+        (S.secs != null ? row("Time taken", mins(S.secs)) : "") +
+        row("HR ID", esc(S.hr_id)) + '</dl>' +
+        '<p class="lead">' + (S.place ? "Ranked by right answers first, then by the quicker finish. " : "Your answers are with HR. Keep this page open: your place appears here at the end. ") + 'We go through the right answers together in the session.</p></div>');
+      if (!S.place) pollT = setTimeout(refresh, 10000);
     }
     function go(j) { if (j < 0 || j >= S.questions.length) return; idx = j; confirmSend = false; draw(); window.scrollTo(0, 0); }
     function pick(i) {
@@ -1203,7 +1239,7 @@
       else if (k === "send-yes") {
         if (Object.keys(saving).some(function (s) { return saving[s] > 0; })) { toast("Saving your last answer. Try again in a second."); return; }
         x.disabled = true; x.textContent = "Sending";
-        rpc("quiz_exam_submit", { p_token: mine.token }).then(function (r) { S.submitted = true; S.score = r.score; S.total = r.total; buzz([40, 40, 40]); done(); window.scrollTo(0, 0); })
+        rpc("quiz_exam_submit", { p_token: mine.token }).then(function (r) { S.submitted = true; S.score = r.score; S.total = r.total; buzz([40, 40, 40]); done(); window.scrollTo(0, 0); refresh(); })
           .catch(function (e) { toast(e.message); confirmSend = false; reload(); });
       }
     });

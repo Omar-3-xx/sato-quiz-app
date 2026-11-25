@@ -708,6 +708,7 @@ textarea.input, .input.area { font-family: var(--latin); font-size: 17px; line-h
 .xrow .hr { font-variant-numeric: tabular-nums; color: var(--deep); font-weight: 600; }
 .xrow .sc { font-variant-numeric: tabular-nums; }
 .xrow .sc b { color: var(--deep); font-size: 18px; }
+.xrow .sc small { display: block; color: var(--muted); font-size: 12px; }
 .xrow .acts { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; align-items: center; }
 .xrow.sent .nm b { color: var(--deep); }
 .st-finished { color: var(--deep); border-color: var(--deep); }
