@@ -593,6 +593,120 @@
     }
     function csvName(kind) { return (R.quiz_title || "quiz").replace(/[^\w]+/g, "-").replace(/^-|-$/g, "") + "_" + R.code + "_" + kind + ".csv"; }
 
+    /* ----- Excel export of a self-paced test: every answer, and where the class is strong or has a gap ----- */
+    var EXCELJS = "https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js";
+    function needExcel() {
+      if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
+      return new Promise(function (ok, no) {
+        var s = document.createElement("script"); s.src = EXCELJS;
+        s.onload = function () { window.ExcelJS ? ok(window.ExcelJS) : no(new Error("The Excel library did not load. Try again.")); };
+        s.onerror = function () { no(new Error("The Excel library did not load. Check the connection and try again.")); };
+        document.head.appendChild(s);
+      });
+    }
+    function examWorkbook(XL, E) {
+      var NAVY = "FF0A1B2E", BLUE = "FF0A527D", HAIR = "FFB9C7D4", MUTED = "FF5A6B7C";
+      var GOOD = { fill: "FFE3F1E6", font: "FF1E6B34" }, BAD = { fill: "FFF8E1E1", font: "FF9B1C1C" }, AMBER = { fill: "FFFDF1DC", font: "FF8A5A00" }, ALLBAD = { fill: "FF9B1C1C", font: "FFFFFFFF" };
+      var fill = function (c, argb) { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb } }; };
+      var thin = { style: "thin", color: { argb: HAIR } };
+      var head = function (row) { row.eachCell(function (c) { fill(c, NAVY); c.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 10 }; c.alignment = { vertical: "middle", horizontal: "center", wrapText: true }; }); row.height = 30; };
+      var grid = function (c) { c.border = { top: thin, left: thin, bottom: thin, right: thin }; };
+      var Q = E.questions, byId = {}; Q.forEach(function (q) { byId[q.id] = q; });
+      var secs = []; Q.forEach(function (q) { var s = q.section || "Questions"; if (secs.indexOf(s) < 0) secs.push(s); });
+      var started = E.people.filter(function (p) { return p.started_at; }), sent = started.filter(function (p) { return p.submitted_at; });
+      var pool = sent.length ? sent : started, poolNote = sent.length ? "From the " + sent.length + " sent test" + (sent.length === 1 ? "" : "s") + "." : "Nobody has sent yet: from the answers given so far by " + started.length + " people.";
+      var wb = new XL.Workbook(); wb.creator = "Sato Pharma · Talent Acquisition"; wb.created = new Date();
+      var stamp = "Exported " + cairo(new Date().toISOString()) + " Cairo";
+
+      /* tab 1: every answer */
+      var ws = wb.addWorksheet("Answers", { views: [{ state: "frozen", xSplit: 3, ySplit: 5 }] });
+      var fixed = ["Place", "Name", "HR ID", "Status", "Score", "%", "Time (min)"].concat(secs);
+      ws.getCell("A1").value = E.title + " · every answer"; ws.getCell("A1").font = { bold: true, size: 16, color: { argb: BLUE } };
+      ws.getCell("A2").value = stamp + " · each cell is the letter they picked · green right, red wrong, blank not answered"; ws.getCell("A2").font = { size: 10, color: { argb: MUTED } };
+      var h = ws.getRow(4); h.values = fixed.concat(Q.map(function (q) { return "Q" + pad(q.n); })); head(h);
+      Q.forEach(function (q, i) { h.getCell(fixed.length + 1 + i).note = { texts: [{ text: (q.section ? q.section + " · " : "") + q.q }] }; });
+      var key = ws.getRow(5); key.values = ["", "Right answer"].concat(new Array(fixed.length - 2).fill("")).concat(Q.map(function (q) { return LETTERS[q.correct]; }));
+      key.eachCell({ includeEmpty: true }, function (c, k) { if (k > 7 && k <= fixed.length) return; fill(c, "FFEAF1F7"); c.font = { bold: true, color: { argb: BLUE } }; c.alignment = { horizontal: k > 2 ? "center" : "left" }; grid(c); });
+      E.people.forEach(function (p) {
+        var got = {}; (p.answers || []).forEach(function (a) { got[a.q] = a; });
+        var bySec = secs.map(function (s) { var qs = Q.filter(function (q) { return (q.section || "Questions") === s; }); return qs.filter(function (q) { return got[q.id] && got[q.id].ok; }).length + "/" + qs.length; });
+        var status = p.submitted_at ? "Sent" : p.started_at ? "Answering · " + (p.answers || []).length + " of " + Q.length : "Not started";
+        var r = ws.addRow([p.place || "", p.name, p.hr_id, status, p.submitted_at ? p.score : "", p.submitted_at ? p.score / Q.length : "", p.secs != null ? Math.round(p.secs / 6) / 10 : ""].concat(p.started_at ? bySec : secs.map(function () { return ""; }))
+          .concat(Q.map(function (q) { var a = got[q.id]; return a && a.c != null ? LETTERS[a.c] : ""; })));
+        r.eachCell({ includeEmpty: true }, function (c, k) { grid(c); if (k > 3) c.alignment = { horizontal: "center" }; });
+        r.getCell(6).numFmt = "0%";
+        Q.forEach(function (q, i) { var a = got[q.id], c = r.getCell(fixed.length + 1 + i); if (!a) return; var t = a.ok ? GOOD : BAD; fill(c, t.fill); c.font = { bold: true, color: { argb: t.font } }; });
+      });
+      ws.getColumn(1).width = 7; ws.getColumn(2).width = 24; ws.getColumn(3).width = 11; ws.getColumn(4).width = 18; ws.getColumn(5).width = 7; ws.getColumn(6).width = 7; ws.getColumn(7).width = 10;
+      secs.forEach(function (s, i) { ws.getColumn(8 + i).width = Math.max(12, s.length + 2); });
+      Q.forEach(function (q, i) { ws.getColumn(fixed.length + 1 + i).width = 5.5; });
+
+      /* tab 2: analysis */
+      var stat = Q.map(function (q) {
+        var picks = q.opts.map(function () { return 0; }), right = 0, n = 0;
+        pool.forEach(function (p) { (p.answers || []).forEach(function (a) { if (a.q !== q.id || a.c == null) return; n++; if (a.ok) right++; if (picks[a.c] != null) picks[a.c]++; }); });
+        var wrongIdx = -1; picks.forEach(function (v, i) { if (i !== q.correct && v > 0 && (wrongIdx < 0 || v > picks[wrongIdx])) wrongIdx = i; });
+        var pct = n ? right / n : null;
+        var verdict = !n ? "No answers yet" : pct === 1 ? "Everyone right" : pct === 0 ? "Everyone wrong" : pct < 0.5 ? "Gap" : pct < 0.75 ? "Watch" : "Strong";
+        return { q: q, n: n, right: right, pct: pct, picks: picks, wrongIdx: wrongIdx, verdict: verdict };
+      });
+      var wa = wb.addWorksheet("Analysis");
+      wa.getCell("A1").value = E.title + " · analysis"; wa.getCell("A1").font = { bold: true, size: 16, color: { argb: BLUE } };
+      wa.getCell("A2").value = stamp + " · " + poolNote; wa.getCell("A2").font = { size: 10, color: { argb: MUTED } };
+      var scores = sent.map(function (p) { return p.score / Q.length; });
+      var avg = scores.length ? scores.reduce(function (s, v) { return s + v; }, 0) / scores.length : null;
+      var count = function (v) { return stat.filter(function (s) { return s.verdict === v; }).length; };
+      var facts = [["People on the list", E.people.length], ["Sent", sent.length], ["Still answering", started.length - sent.length], ["Average score", avg], ["Highest", scores.length ? Math.max.apply(null, scores) : null], ["Lowest", scores.length ? Math.min.apply(null, scores) : null],
+        ["Everyone right", count("Everyone right")], ["Everyone wrong", count("Everyone wrong")], ["Gaps · under half right", count("Gap")], ["Watch · half to three quarters right", count("Watch")], ["Strong · three quarters or more right", count("Strong")]];
+      var y = 4;
+      wa.getCell("A" + y).value = "THE CLASS"; wa.getCell("A" + y).font = { bold: true, size: 10, color: { argb: BLUE } }; y++;
+      facts.forEach(function (f, i) {
+        wa.mergeCells("A" + y + ":C" + y); var a = wa.getCell("A" + y), b = wa.getCell("D" + y); a.value = f[0]; b.value = f[1] == null ? "" : f[1]; grid(a); grid(b);
+        a.font = { color: { argb: MUTED } }; b.font = { bold: true }; b.alignment = { horizontal: "center" }; if (i >= 3 && i <= 5) b.numFmt = "0%";
+        var t = f[0] === "Everyone right" ? GOOD : f[0] === "Everyone wrong" ? BAD : f[0].indexOf("Gaps") === 0 ? BAD : f[0].indexOf("Watch") === 0 ? AMBER : null;
+        if (t && f[1]) { fill(b, t.fill); b.font = { bold: true, color: { argb: t.font } }; }
+        y++;
+      });
+      y++;
+      wa.getCell("A" + y).value = "BY SECTION"; wa.getCell("A" + y).font = { bold: true, size: 10, color: { argb: BLUE } }; y++;
+      var sh = wa.getRow(y); sh.values = ["Section", "", "", "Questions", "Right overall", "Gaps", "Everyone wrong"]; head(sh); wa.mergeCells("A" + y + ":C" + y); y++;
+      secs.forEach(function (s) {
+        var ss = stat.filter(function (x) { return (x.q.section || "Questions") === s; }), n = ss.reduce(function (t, x) { return t + x.n; }, 0), rt = ss.reduce(function (t, x) { return t + x.right; }, 0);
+        var r = wa.getRow(y); r.values = [s, "", "", ss.length, n ? rt / n : "", ss.filter(function (x) { return x.verdict === "Gap"; }).length, ss.filter(function (x) { return x.verdict === "Everyone wrong"; }).length];
+        wa.mergeCells("A" + y + ":C" + y); r.eachCell({ includeEmpty: true }, function (c, k) { grid(c); if (k > 3) c.alignment = { horizontal: "center" }; }); r.getCell(5).numFmt = "0%"; y++;
+      });
+      y++;
+      wa.getCell("A" + y).value = "QUESTION BY QUESTION · the biggest gap first"; wa.getCell("A" + y).font = { bold: true, size: 10, color: { argb: BLUE } }; y++;
+      var cols = ["Q", "Section", "Question", "Right answer", "Answered", "Right", "Wrong", "% right", "Verdict", "Most picked wrong answer", "Picked by"].concat(LETTERS.slice(0, Math.max.apply(null, Q.map(function (q) { return q.opts.length; }))).split("").map(function (l) { return "Picked " + l; }));
+      var th = wa.getRow(y); th.values = cols; head(th); var top = y; y++;
+      stat.slice().sort(function (a, b) { return (a.pct == null ? 2 : a.pct) - (b.pct == null ? 2 : b.pct) || a.q.n - b.q.n; }).forEach(function (s) {
+        var q = s.q, r = wa.getRow(y);
+        r.values = ["Q" + pad(q.n), q.section || "", q.q, LETTERS[q.correct] + " · " + q.opts[q.correct], s.n, s.right, s.n - s.right, s.pct == null ? "" : s.pct, s.verdict,
+          s.wrongIdx >= 0 ? LETTERS[s.wrongIdx] + " · " + q.opts[s.wrongIdx] : "", s.wrongIdx >= 0 ? s.picks[s.wrongIdx] : ""].concat(s.picks);
+        r.eachCell({ includeEmpty: true }, function (c, k) { grid(c); c.alignment = { vertical: "top", wrapText: k === 3 || k === 4 || k === 10, horizontal: k === 3 || k === 4 || k === 10 ? "left" : "center" }; });
+        r.getCell(8).numFmt = "0%";
+        var t = s.verdict === "Everyone right" ? GOOD : s.verdict === "Everyone wrong" ? ALLBAD : s.verdict === "Gap" ? BAD : s.verdict === "Watch" ? AMBER : null;
+        if (t) { fill(r.getCell(9), t.fill); r.getCell(9).font = { bold: true, color: { argb: t.font } }; }
+        var rc = r.getCell(12 + q.correct); fill(rc, GOOD.fill); rc.font = { bold: true, color: { argb: GOOD.font } };
+        y++;
+      });
+      wa.views = [{ state: "frozen", ySplit: top }];
+      [7, 16, 58, 34, 10, 8, 8, 9, 15, 34, 10].forEach(function (w, i) { wa.getColumn(i + 1).width = w; });
+      for (var k = 12; k <= cols.length; k++) wa.getColumn(k).width = 9;
+      return wb;
+    }
+    function examXlsx(btn) {
+      busy(btn, true); var was = btn.textContent; btn.textContent = "Preparing the Excel";
+      Promise.all([adminCall("quiz_admin_exam_export", { p_quiz: xSel }), needExcel()]).then(function (res) {
+        return examWorkbook(res[1], res[0]).xlsx.writeBuffer().then(function (buf) {
+          var url = URL.createObjectURL(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })), l = document.createElement("a");
+          l.href = url; l.download = (res[0].title || "test").replace(/[^\w]+/g, "-").replace(/^-|-$/g, "") + "_answers-and-analysis.xlsx";
+          document.body.appendChild(l); l.click(); l.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+          toast("Excel downloaded: Answers and Analysis");
+        });
+      }).catch(function (e) { toast(e.message); }).then(function () { btn.textContent = was; busy(btn, false); });
+    }
+
     /* ----- tests tab: self-paced tests, their people, the QR and the results ----- */
     function cairo(t) { return t ? new Date(t).toLocaleString("en-GB", { timeZone: "Africa/Cairo", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""; }
     function exams() { return D.quizzes.filter(function (z) { return z.mode === "exam"; }); }
@@ -637,7 +751,7 @@
         '<p class="kicker micro"><b></b>' + (X.active ? "Open for sign-in" : "Closed · open it in Quizzes") + '</p>' + hl(X.title, "the test.", "sm") +
         '<p class="muted" style="margin:0;word-break:break-all">' + esc(url) + '</p>' +
         '<dl class="facts"><div><dt>On the list</dt><dd>' + X.people.length + '</dd></div><div><dt>Sent</dt><dd>' + sent.length + (avg != null ? ' · average ' + avg + '%' : "") + '</dd></div><div><dt>Answering now</dt><dd>' + going.length + '</dd></div><div><dt>Not started</dt><dd>' + (X.people.length - sent.length - going.length) + '</dd></div></dl>' +
-        '<div class="row" style="gap:10px"><button class="btn" data-act="x-qr">Show the QR full screen</button><button class="btn" data-act="x-rank">Show the final ranking</button><button class="btn line" data-act="x-csv">Download results (CSV)</button><button class="btn line" data-act="x-refresh">Refresh</button></div></div></div>';
+        '<div class="row" style="gap:10px"><button class="btn" data-act="x-qr">Show the QR full screen</button><button class="btn" data-act="x-rank">Show the final ranking</button><button class="btn line" data-act="x-xlsx">Download every answer + analysis (Excel)</button><button class="btn line" data-act="x-csv">Download results (CSV)</button><button class="btn line" data-act="x-refresh">Refresh</button></div></div></div>';
       var people = '<div class="xtable"><div class="xrow xhead"><span>Name</span><span>HR ID</span><span>Status</span><span>Score</span><span>Sent</span><span></span></div>' + X.people.map(function (p) {
         var st = p.submitted_at ? '<span class="st st-finished">Sent</span>' : p.started_at ? '<span class="st st-question">' + p.answered + ' of ' + X.total + '</span>' + (p.claimable ? ' <span class="muted">waiting for a new phone</span>' : "") : '<span class="st">Not started</span>';
         var c = confirmKey === "x-move:" + p.hr_id ? '<span class="acts confirm">Move to the next phone that signs in? <button class="btn sm" data-act="x-move-yes" data-hr="' + esc(p.hr_id) + '">Move</button><button class="btn line sm" data-act="cancel-confirm">Keep</button></span>'
@@ -709,6 +823,7 @@
       else if (act === "to-tests") { tab = "tests"; xSel = selId; X = null; draw(); loadExam(); }
       else if (act === "x-sel") { xSel = t.dataset.id; X = null; xEdit = false; draw(); loadExam(); }
       else if (act === "x-refresh") { loadExam(); }
+      else if (act === "x-xlsx") { examXlsx(t); }
       else if (act === "x-rank") { xRank = true; xAnim = true; xEdit = false; confirmKey = null; draw(); window.scrollTo(0, 0); }
       else if (act === "x-rank-no") { xRank = false; draw(); window.scrollTo(0, 0); }
       else if (act === "x-qr") { var zq = document.createElement("div"); zq.className = "zoom zqr"; zq.innerHTML = '<div class="zqr-in"><div class="qr">' + qrSvg(examUrl(xSel)) + '</div><p>' + esc(X ? X.title : "") + '</p><span>Scan, then sign in with your HR ID</span></div>'; zq.addEventListener("click", function () { zq.remove(); }); document.body.appendChild(zq); }
